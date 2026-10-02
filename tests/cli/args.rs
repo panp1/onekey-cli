@@ -197,8 +197,8 @@ fn login_does_not_accept_the_short_token_flag() {
 }
 
 #[test]
-fn version_flags_print_only_the_prefixed_version() {
-  let expected = format!("v{}\n", env!("CARGO_PKG_VERSION"));
+fn version_flags_name_the_cli_edition() {
+  let expected = format!("OneKey CLI v{}\n", env!("CARGO_PKG_VERSION"));
   for flag in ["-v", "-V", "--version"] {
     let output = ProcessCommand::new(env!("CARGO_BIN_EXE_onekey"))
       .arg(flag)

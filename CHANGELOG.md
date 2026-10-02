@@ -11,6 +11,8 @@ First standalone release of the lightweight OneKey client, extracted from OneKey
 - The client commands of OneKey 0.7.1 in a 7 MB binary: `config`, `profile`, `login`, `status`,
   `ls`, `use`, `run`, `curl`, `secret` (including `describe`), `project`, `group`, `token`,
   `init`, `import`, `export`, `cache`, `mcp`, `backup`, `restore` and `update`.
+- `onekey --version` prints `OneKey CLI v0.7.1`, so it is clear which edition is installed (the
+  full release prints `OneKey Server v… (includes CLI)`).
 - One-line installers with checksum verification: `install.sh` for macOS and Linux,
   `install.ps1` for Windows.
 

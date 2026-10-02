@@ -52,7 +52,7 @@ fi
 tar -xzf "$tmp/$archive" -C "$tmp" onekey
 mkdir -p "$install_dir"
 install -m 755 "$tmp/onekey" "$install_dir/onekey"
-printf 'Installed %s\n' "$("$install_dir/onekey" --version) to $install_dir/onekey"
+printf 'Installed %s to %s\n' "$("$install_dir/onekey" --version)" "$install_dir/onekey"
 
 case ":$PATH:" in
   *":$install_dir:"*) ;;

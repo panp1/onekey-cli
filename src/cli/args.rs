@@ -116,7 +116,7 @@ impl Cli {
 
   fn exit_with_version() -> ! {
     let mut stdout = io::stdout().lock();
-    if let Err(write_error) = writeln!(stdout, "v{}", env!("CARGO_PKG_VERSION")) {
+    if let Err(write_error) = writeln!(stdout, "OneKey CLI v{}", env!("CARGO_PKG_VERSION")) {
       clap::Error::raw(ErrorKind::Io, write_error).exit();
     }
     drop(stdout);

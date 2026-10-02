@@ -111,7 +111,7 @@ jobs:
           set -euo pipefail
           binary="target/${{ matrix.target }}/release/onekey"
           [[ "${{ matrix.asset_os }}" == "windows" ]] && binary="${binary}.exe"
-          "${binary}" --version | grep -qx "v${GITHUB_REF_NAME}"
+          "${binary}" --version | grep -qx "OneKey CLI v${GITHUB_REF_NAME}"
           "${binary}" --help >/dev/null
       - name: Package
         shell: bash
