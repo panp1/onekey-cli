@@ -62,7 +62,7 @@ Use a personal token scoped to the projects and keys the agent needs, saved with
 
 ## This CLI and the server
 
-This repository is the client only: no `onekey server` or `onekey admin`. The full [OneKey](https://github.com/panp1/onekey) release runs the server and also includes these client commands. Both use the same `~/.onekey` profiles, so you can switch between them freely. The CLI talks to the server's `/api/v1` REST API.
+This repository is the client only: no `onekey server` or `onekey admin`. The full OneKey release runs the server and also includes these client commands. Both use the same `~/.onekey` profiles, so you can switch between them freely. The CLI talks to the server's `/api/v1` REST API.
 
 ## Develop
 
@@ -80,7 +80,7 @@ Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ## 简体中文
 
-OneKey CLI 是 [OneKey](https://github.com/panp1/onekey) 密钥服务的轻量客户端，只有一个约 7 MB 的程序。开发者和 AI 按名称和用途说明使用密钥，密钥值只交给真正需要它的进程。
+OneKey CLI 是 OneKey 密钥服务的轻量客户端，只有一个约 7 MB 的程序。开发者和 AI 按名称和用途说明使用密钥，密钥值只交给真正需要它的进程。
 
 ### 安装
 
@@ -120,6 +120,6 @@ onekey status                                  # 检查连接和身份
 
 ### 和服务端的关系
 
-本仓库只有客户端，
+本仓库只有客户端，没有 `onekey server` 和 `onekey admin`。完整的 OneKey 发布包运行服务端，也包含这些客户端命令。两者共用 `~/.onekey` 下的配置。
 
 Apache License 2.0。
