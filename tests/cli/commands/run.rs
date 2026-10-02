@@ -117,6 +117,7 @@ async fn live_fetch_refreshes_encrypted_cache_and_falls_back_only_on_availabilit
     .unwrap();
   assert!(matches!(live.source, RuntimeSource::Live { .. }));
 
+  #[cfg_attr(not(unix), allow(unused_variables))]
   let (key_path, cache_path, lock_path) = cache_paths(&server);
   let stored = fs::read(&cache_path).unwrap();
   for marker in [

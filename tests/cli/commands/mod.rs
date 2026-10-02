@@ -1,8 +1,6 @@
 use onekey_cli::cli::{
   client::{Credential, CredentialSource, credential_from_sources, validate_runner_token},
-  commands::{
-    insecure_transport_warning, run_environment, server_switch_confirmed, status_document,
-  },
+  commands::{run_environment, server_switch_confirmed, status_document},
   local_config::{ClientConfig, DefaultEnvironment, ResolvedServer, ServerSource},
 };
 
@@ -13,7 +11,7 @@ mod init;
 #[test]
 fn insecure_transport_warning_names_the_server_and_the_risk() {
   assert_eq!(
-    insecure_transport_warning("http://192.168.1.20:8840"),
+    onekey_cli::cli::commands::insecure_transport_warning("http://192.168.1.20:8840"),
     "Plain HTTP does not encrypt traffic to http://192.168.1.20:8840. Credentials and secrets could be exposed. Use HTTPS whenever possible."
   );
 }
