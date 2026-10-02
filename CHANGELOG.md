@@ -2,6 +2,15 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
+## 0.7.2 - 2026-10-02
+
+Version aligned with OneKey 0.7.2; no change in behaviour.
+
+### Note
+
+- The CLI follows the OneKey server's version numbers; `onekey --version` prints
+  `OneKey CLI v0.7.2`.
+
 ## 0.7.1 - 2026-10-02
 
 First standalone release of the lightweight OneKey client, extracted from OneKey 0.7.1.
