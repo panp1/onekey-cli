@@ -34,6 +34,7 @@ pub use token::TokenCommand;
 #[derive(Parser, Debug)]
 #[command(
   name = "onekey",
+  bin_name = "onekey",
   version,
   disable_version_flag = true,
   about = "Secrets management in one binary",

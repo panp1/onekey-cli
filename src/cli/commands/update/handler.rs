@@ -37,16 +37,21 @@ pub async fn run(json_output: bool) -> Result<i32> {
   Ok(0)
 }
 
+/// How to update on this platform: the installer verifies the release against checksums.txt.
+const INSTALL_COMMAND: &str = if cfg!(windows) {
+  "irm https://raw.githubusercontent.com/panp1/onekey-cli/main/install.ps1 | iex"
+} else {
+  "curl -fsSL https://raw.githubusercontent.com/panp1/onekey-cli/main/install.sh | sh"
+};
+
 #[doc(hidden)]
 pub fn update_message(status: &UpdateStatus) -> String {
   format!(
-    "{HEADING}A new OneKey release is available{HEADING:#}\n\n\
+    "{HEADING}A new OneKey CLI release is available{HEADING:#}\n\n\
      Current version  {VERSION}{}{VERSION:#}\n\
      Latest version   {VERSION}{}{VERSION:#}\n\
      Release notes    {}\n\n\
-     {HEADING}Stop every running OneKey server before updating.{HEADING:#}\n\
-     Download the archive from the release page above, verify it against checksums.txt,\n\
-     and replace the OneKey binary.",
+     Update with the installer, which verifies the download against checksums.txt:\n  {INSTALL_COMMAND}",
     status.current_version, status.latest_version, status.release_url
   )
 }

@@ -27,14 +27,14 @@ fn compares_versions() {
 fn parses_release_payload() {
   let release = parse_release(&json!({
       "tag_name": "0.1.0",
-      "html_url": "https://github.com/panp1/onekey/releases/tag/0.1.0"
+      "html_url": "https://github.com/panp1/onekey-cli/releases/tag/0.1.0"
   }))
   .unwrap();
   assert_eq!(release.tag, "0.1.0");
   assert_eq!(release.version, Some((0, 1, 0)));
   assert_eq!(
     release.url,
-    "https://github.com/panp1/onekey/releases/tag/0.1.0"
+    "https://github.com/panp1/onekey-cli/releases/tag/0.1.0"
   );
 }
 
@@ -51,7 +51,7 @@ fn update_status_serializes_the_documented_shape() {
     current_version: "0.0.12",
     latest_version: "0.1.0".into(),
     update_available: true,
-    release_url: "https://github.com/panp1/onekey/releases/tag/0.1.0".into(),
+    release_url: "https://github.com/panp1/onekey-cli/releases/tag/0.1.0".into(),
   };
   let value = serde_json::to_value(&status).unwrap();
   assert_eq!(
@@ -60,7 +60,7 @@ fn update_status_serializes_the_documented_shape() {
         "current_version": "0.0.12",
         "latest_version": "0.1.0",
         "update_available": true,
-        "release_url": "https://github.com/panp1/onekey/releases/tag/0.1.0"
+        "release_url": "https://github.com/panp1/onekey-cli/releases/tag/0.1.0"
     })
   );
 }
@@ -71,15 +71,21 @@ fn update_message_explains_how_to_install_safely() {
     current_version: "0.0.12",
     latest_version: "0.1.0".into(),
     update_available: true,
-    release_url: "https://github.com/panp1/onekey/releases/tag/0.1.0".into(),
+    release_url: "https://github.com/panp1/onekey-cli/releases/tag/0.1.0".into(),
   };
 
   let message = update_message(&status);
 
-  assert!(message.contains("A new OneKey release is available"));
+  assert!(message.contains("A new OneKey CLI release is available"));
   assert!(message.contains("Current version  \u{1b}[36m0.0.12"));
   assert!(message.contains("Latest version   \u{1b}[36m0.1.0"));
-  assert!(message.contains("Stop every running OneKey server before updating."));
-  assert!(message.contains("verify it against checksums.txt"));
-  assert!(message.contains("https://github.com/panp1/onekey/releases/tag/0.1.0"));
+  assert!(!message.contains("server"), "{message}");
+  assert!(message.contains("verifies the download against checksums.txt"));
+  let installer = if cfg!(windows) {
+    "install.ps1 | iex"
+  } else {
+    "install.sh | sh"
+  };
+  assert!(message.contains(installer), "{message}");
+  assert!(message.contains("https://github.com/panp1/onekey-cli/releases/tag/0.1.0"));
 }
