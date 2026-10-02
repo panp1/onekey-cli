@@ -12,8 +12,9 @@ Quickstart:
   onekey run myapp -- node server.js      # run with the project's secrets as env vars
   onekey curl --bearer github_token https://api.github.com/user
 
-This is the lightweight OneKey client. The server ships separately:
-https://github.com/panp1/onekey
+Sign-in: email and password, or a token (`onekey login --token`). SSO sign-in is not
+supported yet. A token covers ls, run, curl and mcp; project, group, secret, import and
+export need a password sign-in, so on an SSO-only server manage them in the console.
 
 Run 'onekey help <command>' for details on any command.
 ";

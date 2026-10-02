@@ -5,6 +5,10 @@ Examples:
   onekey login
   onekey login --token
   printf '%s' \"$TOKEN\" | onekey login --token
+
+SSO sign-in is not supported yet. On a server that only allows SSO, create a personal or
+runner token in the console and use `onekey login --token`: it covers ls, run, curl and
+mcp; manage projects, groups and secrets in the console.
 ";
 pub(crate) const LOGOUT_HELP: &str = "\
 Examples:

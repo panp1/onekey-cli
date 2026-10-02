@@ -34,6 +34,10 @@ onekey secret describe payment-service/production API_KEY 'Billing API bearer to
 onekey status                                  # connection and identity
 ```
 
+### Sign-in
+
+`onekey login` signs in with email and password; `onekey login --token` saves a personal or runner token. **SSO sign-in is not supported yet.** A token covers `ls`, `run`, `curl` and `mcp`; `init`, `project`, `group`, `secret`, `import` and `export` need a password sign-in. On a server that only allows SSO, manage projects and secrets in the console and use a token in the CLI.
+
 Wrap `-c` scripts in single quotes so `$NAME` expands in the child, not in your shell: `onekey run -c 'psql "$DATABASE_URL" -c "select 1"'`. To check a secret exists, print its length, never its value: `onekey run -c 'echo ${#NAME}'`.
 
 | Variable          | Purpose                                                      |
@@ -103,6 +107,10 @@ onekey run -- npm start                        # 把项目的密钥注入应用�
 onekey curl --bearer github_token https://api.github.com/user
 onekey status                                  # 检查连接和身份
 ```
+
+### 登录方式
+
+`onekey login` 用邮箱和密码登录，`onekey login --token` 保存个人令牌或运行令牌。**暂不支持 SSO 登录。** 令牌可以用 `ls`、`run`、`curl` 和 `mcp`；`init`、`project`、`group`、`secret`、`import`、`export` 需要用密码登录。服务端只开放 SSO 时，请在控制台管理项目和密钥，CLI 里使用令牌。
 
 `-c` 的脚本要用单引号包住；检查密钥是否存在时只看长度，不要打印值：`onekey run -c 'echo ${#NAME}'`。
 

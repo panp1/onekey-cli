@@ -6,6 +6,11 @@ All notable changes to the OneKey CLI are documented in this file.
 
 Version aligned with OneKey 0.7.2; no change in behaviour.
 
+### Changed
+
+- Help and README state that SSO sign-in is not supported yet, and which commands a token
+  covers. The help no longer points to the server repository.
+
 ### Note
 
 - The CLI follows the OneKey server's version numbers; `onekey --version` prints

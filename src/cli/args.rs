@@ -38,8 +38,7 @@ pub use token::TokenCommand;
   version,
   disable_version_flag = true,
   about = "Secrets management in one binary",
-  long_about = "OneKey keeps application secrets in one binary: run a server, store \
-secrets per project (organised in groups), and inject a whole project into any command with `run`.",
+  long_about = "OneKey CLI connects to a OneKey server: store secrets per project (organised in groups), and inject a whole project into any command with `run`.",
   after_help = AFTER_HELP
 )]
 pub struct Cli {
