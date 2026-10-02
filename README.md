@@ -3,7 +3,7 @@
 <p align="center">English · <a href="#简体中文">简体中文</a></p>
 
 <p align="center">
-  The lightweight client for a <a href="https://github.com/panp1/onekey">OneKey</a> secrets server.<br />
+  The lightweight client for a OneKey secrets server.<br />
   One small binary. People and AI agents use secrets <b>by name</b>; values only reach the process that needs them.
 </p>
 
