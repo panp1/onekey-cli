@@ -1,0 +1,250 @@
+use clap::{ArgAction, Parser, Subcommand, error::ErrorKind};
+use std::{
+  ffi::{OsStr, OsString},
+  io::{self, Write},
+  path::PathBuf,
+};
+
+use crate::{
+  cli::commands::{
+    auth, backup, cache, client, config, curl, environment, export, import, init, ls, mcp, project,
+    restore, run, secret, token, update,
+  },
+  constants::help::*,
+};
+
+pub use auth::LoginArgs;
+pub use backup::BackupArgs;
+pub use cache::CacheCommand;
+pub use client::ClientCommand;
+pub use config::{ConfigArgs, ProfileCommand};
+pub use curl::CurlArgs;
+pub use environment::EnvCommand;
+pub use export::ExportArgs;
+pub use import::ImportArgs;
+pub use init::InitArgs;
+pub use ls::LsArgs;
+pub use mcp::McpCommand;
+pub use project::ProjectCommand;
+pub use restore::RestoreArgs;
+pub use run::RunArgs;
+pub use secret::SecretCommand;
+pub use token::TokenCommand;
+
+#[derive(Parser, Debug)]
+#[command(
+  name = "onekey",
+  version,
+  disable_version_flag = true,
+  about = "Secrets management in one binary",
+  long_about = "OneKey keeps application secrets in one binary: run a server, store \
+secrets per project (organised in groups), and inject a whole project into any command with `run`.",
+  after_help = AFTER_HELP
+)]
+pub struct Cli {
+  /// Print the installed OneKey version.
+  #[arg(
+    short = 'v',
+    visible_short_alias = 'V',
+    long = "version",
+    action = ArgAction::Version
+  )]
+  version: Option<bool>,
+  /// Client endpoint for this invocation, overriding the saved server and
+  /// ONEKEY_URL. This does not apply to local server commands.
+  #[arg(long, global = true, value_name = "URL")]
+  pub server: Option<String>,
+  /// Directory for OneKey state and configuration.
+  #[arg(long, global = true, value_name = "DIR")]
+  pub data_dir: Option<PathBuf>,
+  /// Print machine-readable JSON instead of human-readable output, where supported.
+  #[arg(long, global = true)]
+  pub json: bool,
+  #[command(subcommand)]
+  pub command: Command,
+}
+
+impl Cli {
+  /// Parse CLI arguments, showing the active command's help when required
+  /// input is missing.
+  pub fn try_parse_with_help_from<I, T>(arguments: I) -> Result<Self, clap::Error>
+  where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString>,
+  {
+    let mut arguments = arguments.into_iter().map(Into::into).collect::<Vec<_>>();
+    match Self::try_parse_from(arguments.clone()) {
+      Err(error)
+        if matches!(
+          error.kind(),
+          ErrorKind::MissingRequiredArgument | ErrorKind::MissingSubcommand
+        ) =>
+      {
+        let help_position = arguments
+          .iter()
+          .position(|argument| argument == OsStr::new("--"))
+          .unwrap_or(arguments.len());
+        arguments.insert(help_position, OsString::from("--help"));
+        Self::try_parse_from(arguments)
+      }
+      result => result,
+    }
+  }
+
+  pub fn parse_with_help() -> Self {
+    let arguments = std::env::args_os().collect::<Vec<_>>();
+    match Self::try_parse_from(arguments.clone()) {
+      Ok(cli) => cli,
+      Err(error) if error.kind() == ErrorKind::DisplayVersion => Self::exit_with_version(),
+      Err(error)
+        if matches!(
+          error.kind(),
+          ErrorKind::MissingRequiredArgument | ErrorKind::MissingSubcommand
+        ) =>
+      {
+        let exit_code = error.exit_code();
+        let help = Self::try_parse_with_help_from(arguments).unwrap_err();
+        help
+          .print()
+          .unwrap_or_else(|write_error| clap::Error::raw(ErrorKind::Io, write_error).exit());
+        std::process::exit(exit_code)
+      }
+      Err(error) => error.exit(),
+    }
+  }
+
+  fn exit_with_version() -> ! {
+    let mut stdout = io::stdout().lock();
+    if let Err(write_error) = writeln!(stdout, "v{}", env!("CARGO_PKG_VERSION")) {
+      clap::Error::raw(ErrorKind::Io, write_error).exit();
+    }
+    drop(stdout);
+    std::process::exit(0)
+  }
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Command {
+  /// Connect the CLI to a OneKey server (`client connect <url>`).
+  ///
+  /// Without a saved server, client commands use http://localhost:8840.
+  #[command(after_help = client::HELP)]
+  Client {
+    #[command(subcommand)]
+    command: ClientCommand,
+  },
+  /// One-step setup: pick a server, paste a token, choose a default project (saved as a profile).
+  #[command(after_help = config::CONFIG_HELP)]
+  Config(ConfigArgs),
+  /// List, switch or remove CLI profiles (one server + token + default project each).
+  #[command(after_help = config::PROFILE_HELP)]
+  Profile {
+    #[command(subcommand)]
+    command: ProfileCommand,
+  },
+  /// Authenticate with the active server.
+  #[command(after_help = auth::LOGIN_HELP)]
+  Login(LoginArgs),
+  /// Remove the saved credential for the active server.
+  #[command(after_help = auth::LOGOUT_HELP)]
+  Logout,
+  /// Alias for `onekey client status`.
+  #[command(after_help = client::STATUS_ALIAS_HELP)]
+  Status,
+  /// Create a project, its first group, and import secrets.
+  #[command(after_help = init::HELP)]
+  Init(InitArgs),
+  /// Manage projects (create, list, show, rename, delete). `env` is an alias: a project is an env.
+  #[command(after_help = project::HELP, visible_alias = "env")]
+  Project {
+    #[command(subcommand)]
+    command: ProjectCommand,
+  },
+  /// Manage groups inside a project (create, list, rename, delete). Groups only organise secrets.
+  #[command(name = "group", after_help = environment::HELP)]
+  Env {
+    #[command(subcommand)]
+    command: EnvCommand,
+  },
+  /// Manage secrets in a group of a project (list, set, get, delete).
+  #[command(after_help = secret::HELP)]
+  Secret {
+    #[command(subcommand)]
+    command: SecretCommand,
+  },
+  /// Bulk-import secrets into a group from a dotenv, JSON, YAML, or TOML source.
+  ///
+  /// Existing keys are kept unless --replace is passed. Use --dry-run to
+  /// preview the result without changing anything.
+  #[command(after_help = import::HELP)]
+  Import(ImportArgs),
+  /// Export secrets as dotenv, JSON, YAML, TOML, or a Docker env file.
+  ///
+  /// Requires --output <FILE> or --stdout. --force overwrites an existing
+  /// file. Every export requires interactive password confirmation.
+  #[command(after_help = export::HELP)]
+  Export(ExportArgs),
+  /// Manage a project's CI/runner access tokens.
+  #[command(after_help = token::HELP)]
+  Token {
+    #[command(subcommand)]
+    command: TokenCommand,
+  },
+  /// Run a command with a project's secrets (every group) injected as env vars.
+  ///
+  /// Falls back to ONEKEY_ENV, then the active server's saved default, when
+  /// no project argument is given. Secret values are passed to the child
+  /// process only and are never printed. A successful fetch refreshes an
+  /// encrypted local cache. If the server is unavailable, the last cache for
+  /// the same server, project, and credential is used. Everything after
+  /// `--` is the command to run.
+  #[command(after_help = run::HELP)]
+  Run(RunArgs),
+  /// Call an HTTP API with a secret as the Authorization header (wraps curl).
+  #[command(after_help = curl::HELP)]
+  Curl(CurlArgs),
+  /// List projects, groups and secret names this credential can see.
+  #[command(after_help = ls::HELP)]
+  Ls(LsArgs),
+  /// Serve read-only OneKey metadata tools over local MCP stdio.
+  #[command(after_help = mcp::HELP)]
+  Mcp {
+    #[command(subcommand)]
+    command: McpCommand,
+  },
+  /// Set or clear the default project for run and curl.
+  #[command(after_help = "Examples:\n  onekey use payment-service\n  onekey use --clear\n")]
+  Use {
+    /// Project name or ID.
+    #[arg(value_name = "PROJECT", required_unless_present = "clear")]
+    environment: Option<String>,
+    /// Clear the default project for the active server.
+    #[arg(long, conflicts_with = "environment")]
+    clear: bool,
+  },
+  /// Inspect and clean the encrypted runtime cache for the active server.
+  #[command(after_help = cache::HELP)]
+  Cache {
+    #[command(subcommand)]
+    command: CacheCommand,
+  },
+  /// Check GitHub for a newer OneKey CLI release (informational only).
+  #[command(after_help = update::HELP)]
+  Update,
+  /// Create an encrypted backup snapshot of the OneKey instance.
+  ///
+  /// Backs up projects, groups, secrets, runner tokens, and admin
+  /// accounts into an XChaCha20-Poly1305 encrypted .dop archive. Without [name],
+  /// a timestamped name is generated automatically. Stored on the server by
+  /// default. Specify -o/--output to also download and save locally.
+  #[command(after_help = backup::HELP)]
+  Backup(BackupArgs),
+  /// Restore the instance from an encrypted .dop backup file.
+  ///
+  /// Restores all projects, groups, secrets, runner tokens, and admin
+  /// accounts from the specified backup. If the server is uninitialized,
+  /// completes bootstrap restoration. If already initialized, requires
+  /// confirmation and administrator credentials.
+  #[command(after_help = restore::HELP)]
+  Restore(RestoreArgs),
+}

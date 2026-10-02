@@ -1,0 +1,683 @@
+use super::{
+  local_config::{ResolvedServer, normalize},
+  prompt, session,
+};
+use crate::constants::{api, config::ENV_TOKEN};
+use anyhow::{Context, Result, bail};
+use reqwest::Method;
+use serde_json::{Value, json};
+use std::{
+  env, fmt,
+  io::{self, IsTerminal},
+  time::Duration,
+};
+
+#[derive(Clone, Copy, Debug)]
+pub enum CliCancelled {
+  Login,
+  TokenInput,
+  PasswordConfirmation,
+  ServerSwitch,
+  Confirmation,
+  SecretInput,
+}
+
+impl fmt::Display for CliCancelled {
+  fn fmt(
+    &self,
+    formatter: &mut fmt::Formatter<'_>,
+  ) -> fmt::Result {
+    formatter.write_str(match self {
+      Self::Login => "Login cancelled.",
+      Self::TokenInput => "Token input cancelled.",
+      Self::PasswordConfirmation => "Password confirmation cancelled.",
+      Self::ServerSwitch => "Server switch cancelled.",
+      Self::Confirmation => "Operation cancelled.",
+      Self::SecretInput => "Secret input cancelled.",
+    })
+  }
+}
+
+impl std::error::Error for CliCancelled {}
+
+#[derive(Debug)]
+pub(crate) struct AvailabilityError {
+  message: String,
+}
+
+impl AvailabilityError {
+  pub(crate) fn new(message: impl Into<String>) -> Self {
+    Self {
+      message: message.into(),
+    }
+  }
+}
+
+impl fmt::Display for AvailabilityError {
+  fn fmt(
+    &self,
+    formatter: &mut fmt::Formatter<'_>,
+  ) -> fmt::Result {
+    formatter.write_str(&self.message)
+  }
+}
+
+impl std::error::Error for AvailabilityError {}
+
+pub(crate) fn is_availability_error(error: &anyhow::Error) -> bool {
+  error.downcast_ref::<AvailabilityError>().is_some()
+}
+
+#[derive(Debug)]
+struct ResponseError {
+  status: reqwest::StatusCode,
+  message: String,
+}
+
+impl fmt::Display for ResponseError {
+  fn fmt(
+    &self,
+    formatter: &mut fmt::Formatter<'_>,
+  ) -> fmt::Result {
+    formatter.write_str(&self.message)
+  }
+}
+
+impl std::error::Error for ResponseError {}
+
+#[doc(hidden)]
+pub fn is_authentication_error(error: &anyhow::Error) -> bool {
+  error
+    .downcast_ref::<ResponseError>()
+    .is_some_and(|error| error.status == reqwest::StatusCode::UNAUTHORIZED)
+}
+
+#[doc(hidden)]
+pub fn is_conflict_error(error: &anyhow::Error) -> bool {
+  error
+    .downcast_ref::<ResponseError>()
+    .is_some_and(|error| error.status == reqwest::StatusCode::CONFLICT)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CredentialSource {
+  Argument,
+  Environment,
+  EncryptedSession,
+  None,
+}
+
+impl CredentialSource {
+  pub fn as_str(self) -> &'static str {
+    match self {
+      Self::Argument => "argument",
+      Self::Environment => "environment",
+      Self::EncryptedSession => "encrypted_session",
+      Self::None => "none",
+    }
+  }
+}
+
+pub struct Credential {
+  pub token: Option<String>,
+  pub source: CredentialSource,
+  pub email: Option<String>,
+}
+
+pub struct ApiClient {
+  pub base_url: String,
+  client: reqwest::Client,
+  token: Option<String>,
+}
+
+const MAX_RUNTIME_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
+
+impl ApiClient {
+  pub fn new(
+    server: &ResolvedServer,
+    token: Option<String>,
+  ) -> Result<Self> {
+    let base_url = normalize(&server.url)?;
+    let https_only = base_url.starts_with("https://");
+    Ok(Self {
+      base_url,
+      client: reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
+        .https_only(https_only)
+        .build()?,
+      token,
+    })
+  }
+  pub async fn request(
+    &self,
+    method: Method,
+    path: &str,
+    body: Option<Value>,
+  ) -> Result<Value> {
+    self.request_inner(method, path, body, false).await
+  }
+
+  pub(crate) async fn request_runtime(
+    &self,
+    method: Method,
+    path: &str,
+    body: Option<Value>,
+  ) -> Result<Value> {
+    self.request_inner(method, path, body, true).await
+  }
+
+  async fn request_inner(
+    &self,
+    method: Method,
+    path: &str,
+    body: Option<Value>,
+    classify_availability: bool,
+  ) -> Result<Value> {
+    let mut request = self.request_builder(method, path);
+    if let Some(body) = body {
+      request = request.json(&body);
+    }
+    self.send_request(request, classify_availability).await
+  }
+
+  fn request_builder(
+    &self,
+    method: Method,
+    path: &str,
+  ) -> reqwest::RequestBuilder {
+    let request = self
+      .client
+      .request(method, format!("{}{}", self.base_url, path));
+    if let Some(token) = &self.token {
+      request.bearer_auth(token)
+    } else {
+      request
+    }
+  }
+
+  async fn send_request(
+    &self,
+    request: reqwest::RequestBuilder,
+    classify_availability: bool,
+  ) -> Result<Value> {
+    let response = request
+      .send()
+      .await
+      .map_err(|error| transport_error(error, &self.base_url, classify_availability))?;
+    let status = response.status();
+    if classify_availability && status.is_server_error() {
+      return Err(
+        AvailabilityError::new(format!("OneKey at {} returned {status}", self.base_url)).into(),
+      );
+    }
+    let value: Value = if classify_availability {
+      let bytes = read_limited_response(response, MAX_RUNTIME_RESPONSE_BYTES).await?;
+      serde_json::from_slice(&bytes).context("server returned an invalid JSON response")?
+    } else {
+      response
+        .json()
+        .await
+        .context("server returned an invalid JSON response")?
+    };
+    if !status.is_success() {
+      let errors = value
+        .get("error")
+        .and_then(Value::as_object)
+        .map(|errors| {
+          errors
+            .iter()
+            .map(|(code, message)| {
+              format!("{code}: {}", message.as_str().unwrap_or("Request failed."))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+        })
+        .unwrap_or_else(|| format!("server returned {status}"));
+      return Err(
+        ResponseError {
+          status,
+          message: errors,
+        }
+        .into(),
+      );
+    }
+    Ok(value.get("data").cloned().unwrap_or(Value::Null))
+  }
+  pub async fn health(&self) -> Result<Value> {
+    self.request(Method::GET, api::health::ROOT, None).await
+  }
+
+  pub async fn download_bytes(
+    &self,
+    path: &str,
+  ) -> Result<Vec<u8>> {
+    let mut request = self
+      .client
+      .request(Method::GET, format!("{}{}", self.base_url, path));
+    if let Some(token) = &self.token {
+      request = request.bearer_auth(token);
+    }
+    let response = request
+      .send()
+      .await
+      .map_err(|error| transport_error(error, &self.base_url, false))?;
+    let status = response.status();
+    if !status.is_success() {
+      let value: Value = response.json().await.unwrap_or(Value::Null);
+      let errors = value
+        .get("error")
+        .and_then(Value::as_object)
+        .map(|errors| {
+          errors
+            .iter()
+            .map(|(code, message)| {
+              format!("{code}: {}", message.as_str().unwrap_or("Download failed."))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+        })
+        .unwrap_or_else(|| format!("server returned {status}"));
+      bail!(errors);
+    }
+    let bytes = response.bytes().await?.to_vec();
+    Ok(bytes)
+  }
+
+  pub async fn upload_multipart(
+    &self,
+    path: &str,
+    file_name: &str,
+    bytes: Vec<u8>,
+  ) -> Result<Value> {
+    self
+      .upload_backup_multipart(path, file_name, bytes, None)
+      .await
+  }
+
+  pub async fn upload_backup_multipart(
+    &self,
+    path: &str,
+    file_name: &str,
+    bytes: Vec<u8>,
+    master_key: Option<Vec<u8>>,
+  ) -> Result<Value> {
+    self
+      .upload_backup_multipart_with_setup_token(path, file_name, bytes, master_key, None)
+      .await
+  }
+
+  pub async fn upload_bootstrap_multipart(
+    &self,
+    path: &str,
+    file_name: &str,
+    bytes: Vec<u8>,
+    master_key: Option<Vec<u8>>,
+    setup_token: &str,
+  ) -> Result<Value> {
+    self
+      .upload_backup_multipart_with_setup_token(
+        path,
+        file_name,
+        bytes,
+        master_key,
+        Some(setup_token),
+      )
+      .await
+  }
+
+  async fn upload_backup_multipart_with_setup_token(
+    &self,
+    path: &str,
+    file_name: &str,
+    bytes: Vec<u8>,
+    master_key: Option<Vec<u8>>,
+    setup_token: Option<&str>,
+  ) -> Result<Value> {
+    let part = reqwest::multipart::Part::bytes(bytes)
+      .file_name(file_name.to_string())
+      .mime_str("application/octet-stream")?;
+    let mut form = reqwest::multipart::Form::new().part("file", part);
+    if let Some(key_bytes) = master_key {
+      let key_part = reqwest::multipart::Part::bytes(key_bytes)
+        .file_name("master.key")
+        .mime_str("application/octet-stream")?;
+      form = form.part("master_key", key_part);
+    }
+    if let Some(setup_token) = setup_token {
+      form = form.text("setup_token", setup_token.to_owned());
+    }
+    let mut request = self
+      .client
+      .request(Method::POST, format!("{}{}", self.base_url, path))
+      .multipart(form);
+    if let Some(token) = &self.token {
+      request = request.bearer_auth(token);
+    }
+    let response = request
+      .send()
+      .await
+      .map_err(|error| transport_error(error, &self.base_url, false))?;
+    let status = response.status();
+    let value: Value = response
+      .json()
+      .await
+      .context("server returned an invalid JSON response")?;
+    if !status.is_success() {
+      let errors = value
+        .get("error")
+        .and_then(Value::as_object)
+        .map(|errors| {
+          errors
+            .iter()
+            .map(|(code, message)| {
+              format!("{code}: {}", message.as_str().unwrap_or("Upload failed."))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+        })
+        .unwrap_or_else(|| format!("server returned {status}"));
+      bail!(errors);
+    }
+    Ok(value.get("data").cloned().unwrap_or(Value::Null))
+  }
+
+  pub(crate) fn credential_token(&self) -> Result<&str> {
+    self
+      .token
+      .as_deref()
+      .context("OneKey authentication is required")
+  }
+}
+
+fn transport_error(
+  error: reqwest::Error,
+  base_url: &str,
+  classify_availability: bool,
+) -> anyhow::Error {
+  let message = if error.is_timeout() {
+    format!(
+      "OneKey at {base_url} did not respond within 30 seconds.\n\
+Check the server health and network connection, then try again."
+    )
+  } else if error.is_connect() {
+    format!(
+      "Could not connect to OneKey at {base_url}.\n\
+Check that the server is running and verify the active endpoint with `onekey client status`."
+    )
+  } else {
+    format!(
+      "The request to OneKey at {base_url} failed before a response was received.\n\
+Check DNS, TLS, proxy, and network settings, then try again."
+    )
+  };
+  if classify_availability {
+    return AvailabilityError::new(message).into();
+  }
+  anyhow::anyhow!(message)
+}
+
+async fn read_limited_response(
+  mut response: reqwest::Response,
+  limit: u64,
+) -> Result<Vec<u8>> {
+  if response
+    .content_length()
+    .is_some_and(|length| length > limit)
+  {
+    bail!("server runtime response exceeded the maximum allowed size");
+  }
+  let mut body = Vec::new();
+  while let Some(chunk) = response.chunk().await? {
+    if body.len() as u64 + chunk.len() as u64 > limit {
+      bail!("server runtime response exceeded the maximum allowed size");
+    }
+    body.extend_from_slice(&chunk);
+  }
+  Ok(body)
+}
+pub fn credential(server: &ResolvedServer) -> Result<Credential> {
+  credential_with_token(server, None)
+}
+
+pub fn credential_with_token(
+  server: &ResolvedServer,
+  token: Option<String>,
+) -> Result<Credential> {
+  credential_from_sources(token, env::var(ENV_TOKEN), || session::load(server))
+}
+
+#[doc(hidden)]
+pub fn credential_from_sources<F>(
+  token: Option<String>,
+  environment: Result<String, env::VarError>,
+  saved: F,
+) -> Result<Credential>
+where
+  F: FnOnce() -> Result<Option<session::StoredSession>>,
+{
+  if let Some(token) = token {
+    validate_runner_token(&token)?;
+    return Ok(Credential {
+      token: Some(token),
+      source: CredentialSource::Argument,
+      email: None,
+    });
+  }
+  match environment {
+    Ok(token) => {
+      if token.is_empty() {
+        bail!("ONEKEY_TOKEN is set but empty");
+      }
+      return Ok(Credential {
+        token: Some(token),
+        source: CredentialSource::Environment,
+        email: None,
+      });
+    }
+    Err(env::VarError::NotUnicode(_)) => bail!("ONEKEY_TOKEN contains invalid Unicode"),
+    Err(env::VarError::NotPresent) => {}
+  }
+  Ok(match saved()? {
+    Some(session) => Credential {
+      token: Some(session.token),
+      source: CredentialSource::EncryptedSession,
+      email: session.email,
+    },
+    None => Credential {
+      token: None,
+      source: CredentialSource::None,
+      email: None,
+    },
+  })
+}
+
+/// A runner (`dbs_`) or personal (`dpa_`) token: prefix plus 43 URL-safe base64 characters.
+pub fn validate_runner_token(token: &str) -> Result<()> {
+  use crate::constants::tokens::{AGENT_TOKEN_PREFIX, RUNNER_TOKEN_PREFIX};
+
+  let encoded = token
+    .strip_prefix(RUNNER_TOKEN_PREFIX)
+    .or_else(|| token.strip_prefix(AGENT_TOKEN_PREFIX))
+    .context("Enter a OneKey token beginning with dbs_ or dpa_.")?;
+  if encoded.len() != 43
+    || encoded
+      .bytes()
+      .any(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')))
+  {
+    bail!("Enter a valid OneKey token.");
+  }
+  Ok(())
+}
+pub fn save_credential(
+  server: &ResolvedServer,
+  token: &str,
+  email: Option<&str>,
+) -> Result<()> {
+  session::save(server, token, email)
+}
+pub fn remove_credential(server: &ResolvedServer) -> Result<bool> {
+  session::remove(server)
+}
+pub async fn login(
+  server: &ResolvedServer,
+  save: bool,
+) -> Result<ApiClient> {
+  if !io::stdin().is_terminal() {
+    bail!("interactive login requires a terminal. Set ONEKEY_TOKEN for automation");
+  }
+  let (email, password) = prompt_login(server).await?;
+  let client = ApiClient::new(server, None)?;
+  let request = client.request(
+    Method::POST,
+    api::auth::LOGIN,
+    Some(json!({"email":email,"password":password,"sessionKind":"cli"})),
+  );
+  let data = tokio::select! {
+    result = request => result?,
+    signal = tokio::signal::ctrl_c() => {
+      signal?;
+      return Err(CliCancelled::Login.into());
+    }
+  };
+  let token = data
+    .get("token")
+    .and_then(Value::as_str)
+    .context("login response did not contain a token")?
+    .to_owned();
+  let email = data
+    .get("email")
+    .and_then(Value::as_str)
+    .context("login response did not contain an email")?;
+  if save {
+    save_credential(server, &token, Some(email))?;
+  }
+  ApiClient::new(server, Some(token))
+}
+
+async fn prompt_login(server: &ResolvedServer) -> Result<(String, String)> {
+  let server_url = server.url.clone();
+  let mut prompt = tokio::task::spawn_blocking(move || prompt_credentials(&server_url));
+  tokio::select! {
+    result = &mut prompt => result.context("login prompt task failed")?,
+    signal = tokio::signal::ctrl_c() => {
+      signal?;
+      let _ = tokio::time::timeout(Duration::from_millis(250), &mut prompt).await;
+      Err(CliCancelled::Login.into())
+    }
+  }
+}
+
+fn prompt_credentials(server_url: &str) -> Result<(String, String)> {
+  eprintln!("OneKey login\nServer: {server_url}\n");
+  let email = prompt::email("Email:", CliCancelled::Login)?;
+  let password = prompt::password("Password:", false, CliCancelled::Login)?;
+  Ok((email, password))
+}
+
+pub fn normalize_login_email(value: &str) -> Result<String> {
+  crate::modules::common::validate_email(value)
+    .map_err(|_| anyhow::anyhow!("Enter a valid email address."))
+}
+enum HumanClient {
+  Existing(ApiClient),
+  NewlyAuthenticated(ApiClient),
+}
+
+async fn acquire_human_client(server: &ResolvedServer) -> Result<HumanClient> {
+  let credential = credential(server)?;
+  if let Some(token) = credential.token {
+    let client = ApiClient::new(server, Some(token))?;
+    // Only a 401 means the saved credential is gone; anything else (timeout, 5xx) must not
+    // start an interactive login that would overwrite it.
+    match client.request(Method::GET, api::auth::SESSION, None).await {
+      Ok(_) => return Ok(HumanClient::Existing(client)),
+      Err(error) if is_authentication_error(&error) => {}
+      Err(error) => return Err(error),
+    }
+    if credential.source == CredentialSource::Environment || !io::stdin().is_terminal() {
+      bail!("the configured OneKey credential is invalid or expired");
+    }
+  }
+  login(server, true)
+    .await
+    .map(HumanClient::NewlyAuthenticated)
+}
+
+/// Agent and runner tokens go straight to the server, which enforces their grant;
+/// anything else needs a human session.
+pub async fn token_or_human_client(server: &ResolvedServer) -> Result<ApiClient> {
+  let credential = credential(server)?;
+  let is_machine_token = credential.token.as_deref().is_some_and(|token| {
+    token.starts_with(crate::constants::tokens::AGENT_TOKEN_PREFIX)
+      || token.starts_with(crate::constants::tokens::RUNNER_TOKEN_PREFIX)
+  });
+  if is_machine_token {
+    return authenticated_client(server, credential);
+  }
+  human_client(server).await
+}
+
+pub async fn human_client(server: &ResolvedServer) -> Result<ApiClient> {
+  Ok(match acquire_human_client(server).await? {
+    HumanClient::Existing(client) | HumanClient::NewlyAuthenticated(client) => client,
+  })
+}
+
+pub async fn recently_authenticated_client(server: &ResolvedServer) -> Result<ApiClient> {
+  if !io::stdin().is_terminal() {
+    bail!("interactive password confirmation is required for plaintext secret access");
+  }
+  match acquire_human_client(server).await? {
+    HumanClient::NewlyAuthenticated(client) => Ok(client),
+    HumanClient::Existing(client) => {
+      let password = prompt_password_confirmation().await?;
+      let request = client.request(
+        Method::POST,
+        api::auth::REAUTHENTICATE,
+        Some(json!({"password":password})),
+      );
+      tokio::select! {
+        result = request => { result?; }
+        signal = tokio::signal::ctrl_c() => {
+          signal?;
+          return Err(CliCancelled::PasswordConfirmation.into());
+        }
+      }
+      Ok(client)
+    }
+  }
+}
+
+async fn prompt_password_confirmation() -> Result<String> {
+  eprintln!("Password confirmation required.");
+  let mut prompt = tokio::task::spawn_blocking(|| {
+    prompt::password("Password:", false, CliCancelled::PasswordConfirmation)
+  });
+  tokio::select! {
+    result = &mut prompt => result.context("password confirmation prompt task failed")?,
+    signal = tokio::signal::ctrl_c() => {
+      signal?;
+      let _ = tokio::time::timeout(Duration::from_millis(250), &mut prompt).await;
+      Err(CliCancelled::PasswordConfirmation.into())
+    }
+  }
+}
+pub async fn any_authenticated_client(
+  server: &ResolvedServer,
+  token: Option<String>,
+) -> Result<ApiClient> {
+  let credential = credential_with_token(server, token)?;
+  authenticated_client(server, credential)
+}
+
+#[doc(hidden)]
+pub fn authenticated_client(
+  server: &ResolvedServer,
+  credential: Credential,
+) -> Result<ApiClient> {
+  if let Some(token) = credential.token {
+    return ApiClient::new(server, Some(token));
+  }
+  bail!("OneKey authentication is required. Run `onekey login` first or set ONEKEY_TOKEN.")
+}

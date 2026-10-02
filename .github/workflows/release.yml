@@ -1,0 +1,179 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.98.0"
+
+jobs:
+  verify:
+    name: Verify release source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install "${RUST_VERSION}" --profile minimal --component rustfmt,clippy
+          rustup default "${RUST_VERSION}"
+      - name: Tag, Cargo.toml and CHANGELOG agree
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          test "${cargo_version}" = "${version}" || { echo "Cargo.toml has ${cargo_version}, tag is ${version}"; exit 1; }
+          grep -q "^## ${version} - " CHANGELOG.md || { echo "CHANGELOG.md has no ${version} section"; exit 1; }
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked --all-targets
+      - name: Release notes from CHANGELOG
+        run: |
+          set -euo pipefail
+          awk -v v="## ${GITHUB_REF_NAME} - " 'index($0, v) == 1 {on=1; next} on && /^## / {exit} on' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes
+          path: release-notes.md
+          retention-days: 1
+
+  build:
+    name: Build ${{ matrix.asset_os }} ${{ matrix.asset_arch }}
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            asset_os: linux
+            asset_arch: amd64
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            asset_os: linux
+            asset_arch: arm64
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            asset_os: darwin
+            asset_arch: amd64
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            asset_os: darwin
+            asset_arch: arm64
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            asset_os: windows
+            asset_arch: amd64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust target
+        shell: bash
+        run: |
+          rustup toolchain install "${RUST_VERSION}" --profile minimal --target "${{ matrix.target }}"
+          rustup default "${RUST_VERSION}"
+      - name: Install musl compiler
+        if: matrix.asset_os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="${{ matrix.target }}"
+          if [[ "${{ matrix.asset_os }}" == "linux" ]]; then
+            cc_var="CC_${target//-/_}"
+            linker_var="CARGO_TARGET_${target//-/_}_LINKER"
+            export "${cc_var}=musl-gcc"
+            export "${linker_var^^}=musl-gcc"
+          fi
+          cargo build --release --locked --target "${target}"
+      - name: Smoke-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="target/${{ matrix.target }}/release/onekey"
+          [[ "${{ matrix.asset_os }}" == "windows" ]] && binary="${binary}.exe"
+          "${binary}" --version | grep -qx "v${GITHUB_REF_NAME}"
+          "${binary}" --help >/dev/null
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="onekey-cli_${GITHUB_REF_NAME}_${{ matrix.asset_os }}_${{ matrix.asset_arch }}"
+          dir="$(mktemp -d)"
+          cp CHANGELOG.md LICENSE NOTICE README.md "${dir}/"
+          if [[ "${{ matrix.asset_os }}" == "windows" ]]; then
+            cp "target/${{ matrix.target }}/release/onekey.exe" "${dir}/"
+            (cd "${dir}" && 7z a -tzip -mx=9 -bso0 "${GITHUB_WORKSPACE}/${name}.zip" onekey.exe CHANGELOG.md LICENSE NOTICE README.md)
+          else
+            install -m 755 "target/${{ matrix.target }}/release/onekey" "${dir}/onekey"
+            tar -C "${dir}" -czf "${name}.tar.gz" onekey CHANGELOG.md LICENSE NOTICE README.md
+            tar -tzf "${name}.tar.gz"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.asset_os }}-${{ matrix.asset_arch }}
+          path: onekey-cli_*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: release/
+          merge-multiple: true
+      - name: Checksums
+        working-directory: release
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME}"
+          expected=(
+            "onekey-cli_${v}_darwin_amd64.tar.gz"
+            "onekey-cli_${v}_darwin_arm64.tar.gz"
+            "onekey-cli_${v}_linux_amd64.tar.gz"
+            "onekey-cli_${v}_linux_arm64.tar.gz"
+            "onekey-cli_${v}_windows_amd64.zip"
+          )
+          for asset in "${expected[@]}"; do test -f "${asset}"; done
+          sha256sum "${expected[@]}" | sort -k2 > checksums.txt
+          sha256sum --check checksums.txt
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME}"
+          if gh release view "${v}" >/dev/null 2>&1; then
+            gh release upload "${v}" release/onekey-cli_* release/checksums.txt --clobber
+            gh release edit "${v}" --title "OneKey CLI ${v}" --notes-file release/release-notes.md
+          else
+            gh release create "${v}" release/onekey-cli_* release/checksums.txt \
+              --title "OneKey CLI ${v}" --notes-file release/release-notes.md --verify-tag
+          fi

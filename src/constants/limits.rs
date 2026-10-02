@@ -1,0 +1,2 @@
+pub const MAX_SECRETS_PER_ENVIRONMENT: usize = 1_000;
+pub const MAX_SECRET_COLLECTION_BYTES: usize = 2 * 1024 * 1024;

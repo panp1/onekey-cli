@@ -1,0 +1,12 @@
+Dopbase
+Copyright 2026 The Dopbase Authors
+
+OneKey
+This product is a modified version of Dopbase (https://github.com/dopbase/dopbase),
+forked from release 0.1.8 and rebranded. Changes are recorded in the git history
+and summarized in ONEKEY.md of the OneKey repository. OneKey has since evolved independently; its
+database and backups are not compatible with Dopbase.
+
+OneKey CLI
+The OneKey command-line client, extracted from OneKey (https://github.com/panp1/onekey)
+at version 0.7.1. It talks to a OneKey server over its REST API.
