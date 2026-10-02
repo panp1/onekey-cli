@@ -112,6 +112,6 @@ onekey status                                  # 检查连接和身份
 
 ### 和服务端的关系
 
-本仓库只有客户端，没有 `onekey server` 和 `onekey admin`。服务端请使用完整的 [OneKey](https://github.com/panp1/onekey) 发布包，它同样包含这些客户端命令。两者共用 `~/.onekey` 下的配置。
+本仓库只有客户端，
 
 Apache License 2.0。
