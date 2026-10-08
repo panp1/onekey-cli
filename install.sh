@@ -26,9 +26,12 @@ esac
 if [ -n "${ONEKEY_VERSION:-}" ]; then
   version="$ONEKEY_VERSION"
 else
-  version="$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" |
-    sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)"
-  [ -n "$version" ] || fail "could not find the latest release"
+  # Follow the releases/latest redirect instead of the GitHub API: the API allows 60 anonymous
+  # requests an hour per IP and answers 403 to a busy office or VPN address.
+  latest="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest")" ||
+    fail "could not reach GitHub"
+  version="${latest##*/tag/}"
+  [ "$version" != "$latest" ] && [ -n "$version" ] || fail "could not find the latest release"
 fi
 
 archive="onekey-cli_${version}_${os}_${arch}.tar.gz"

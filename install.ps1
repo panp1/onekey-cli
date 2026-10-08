@@ -6,7 +6,11 @@ $ErrorActionPreference = 'Stop'
 $repo = 'panp1/onekey-cli'
 $installDir = if ($env:ONEKEY_INSTALL_DIR) { $env:ONEKEY_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\onekey' }
 $version = if ($env:ONEKEY_VERSION) { $env:ONEKEY_VERSION } else {
-  (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest").tag_name
+  # Follow the releases/latest redirect instead of the GitHub API (60 anonymous requests an hour per IP).
+  $request = [System.Net.WebRequest]::Create("https://github.com/$repo/releases/latest")
+  $request.Method = 'HEAD'
+  $response = $request.GetResponse()
+  try { $response.ResponseUri.Segments[-1] } finally { $response.Close() }
 }
 $archive = "onekey-cli_${version}_windows_amd64.zip"
 $base = "https://github.com/$repo/releases/download/$version"
