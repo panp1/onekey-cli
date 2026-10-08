@@ -2,6 +2,24 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
+## 0.7.3 - 2026-10-08
+
+Offline cache lifetime, aligned with OneKey 0.7.3.
+
+### Added
+
+- `run` and `curl` enforce the offline cache lifetime the server issues with each
+  fetch. Administrators set it in Settings → Security, separately for password
+  sign-in, runner tokens and personal / AI tokens (defaults 1 hour, 1 hour, 15
+  minutes; 0 disables fallback; maximum 24 hours). Offline reads never renew it.
+- Expired, future-dated, disabled or legacy caches without a lifetime never start
+  a child. With fallback disabled no cached copy is kept on disk. Older servers
+  remain usable online.
+
+### Fixed
+
+- The installers find the latest release without the rate-limited GitHub API.
+
 ## 0.7.2 - 2026-10-02
 
 Version aligned with OneKey 0.7.2; no change in behaviour.
