@@ -493,7 +493,7 @@ pub fn native_arguments() -> Option<Vec<std::ffi::OsString>> {
       config["server"].as_str()?.into(),
       "browser".into(),
       "host".into(),
-      caller.into(),
+      caller,
     ])
   }
   #[cfg(not(windows))]
