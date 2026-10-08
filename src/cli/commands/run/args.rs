@@ -23,6 +23,9 @@ pub struct RunArgs {
 }
 
 pub(crate) const HELP: &str = "\
+Offline cache lifetime is configured by an administrator in Settings → Security.
+Expired caches are refused; a lifetime of 0 disables offline fallback.
+
 Examples:
   onekey run -- npm run dev
   onekey run -c 'psql \"$DATABASE_URL\" -c \"select 1\"'

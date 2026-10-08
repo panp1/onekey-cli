@@ -11,12 +11,37 @@ use crate::{
   models::SecretInput,
 };
 use anyhow::{Context, Result, bail};
-use chrono::{SecondsFormat, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use reqwest::Method;
 use serde::Deserialize;
 use std::{collections::HashSet, time::Duration};
 
 const LIVE_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn validate_cache_age(
+  fetched_at: DateTime<Utc>,
+  ttl_seconds: Option<u64>,
+  now: DateTime<Utc>,
+) -> Result<()> {
+  let ttl = ttl_seconds.context("offline cache has no server-issued TTL; fetch secrets from an updated server before using them offline")?;
+  if ttl == 0 {
+    bail!("offline cache fallback is disabled by the server");
+  }
+  if ttl > 86_400 {
+    bail!("offline cache contains an invalid server-issued TTL");
+  }
+  let age = now.signed_duration_since(fetched_at).to_std().context(
+    "offline cache fetch time is in the future; refresh it while the server is available",
+  )?;
+  if age >= Duration::from_secs(ttl) {
+    bail!(
+      "offline cache has expired (age {}, TTL {}); refresh it while the server is available",
+      format_age(now.signed_duration_since(fetched_at)),
+      format_age(chrono::Duration::seconds(ttl as i64))
+    );
+  }
+  Ok(())
+}
 
 #[derive(Debug)]
 pub enum RuntimeSource {
@@ -55,6 +80,7 @@ struct RuntimeResponse {
   environment: String,
   environment_id: String,
   entries: Vec<SecretInput>,
+  cache_ttl_seconds: Option<u64>,
 }
 
 pub async fn load(
@@ -71,13 +97,26 @@ pub async fn load(
         environment_id: runtime.environment_id.clone(),
         aliases: Vec::new(),
         fetched_at: Utc::now(),
+        cache_ttl_seconds: runtime.cache_ttl_seconds,
         entries: runtime.entries.clone(),
       };
-      let cache_warning = store::save(server, api.credential_token()?, reference, &cached)
-        .err()
-        .map(|error| {
-          format!("live secrets were loaded, but the encrypted cache was not updated: {error}")
-        });
+      let credential = api.credential_token()?;
+      // No usable offline lifetime: keep no copy on disk rather than one that is always refused.
+      let cache_warning = if matches!(cached.cache_ttl_seconds, Some(ttl) if ttl > 0) {
+        store::save(server, credential, reference, &cached)
+          .err()
+          .map(|error| {
+            format!("live secrets were loaded, but the encrypted cache was not updated: {error}")
+          })
+      } else {
+        store::forget(server, credential, &cached.environment_id)
+          .err()
+          .map(|error| {
+            format!(
+              "live secrets were loaded, but the old encrypted cache was not removed: {error}"
+            )
+          })
+      };
       Ok(RuntimeLoad {
         project: runtime.project,
         environment: runtime.environment,
@@ -125,6 +164,7 @@ async fn fetch_live(
     environment: runtime.groups.join(","),
     environment_id: runtime.project_id,
     entries: runtime.entries,
+    cache_ttl_seconds: runtime.cache_ttl_seconds,
   })
 }
 
@@ -135,6 +175,8 @@ struct ProjectRuntimeResponse {
   project_id: String,
   groups: Vec<String>,
   entries: Vec<SecretInput>,
+  #[serde(default)]
+  cache_ttl_seconds: Option<u64>,
 }
 
 fn validate_entries(entries: &[SecretInput]) -> Result<()> {
@@ -176,9 +218,13 @@ fn load_after_failure(
       "{reason}. \nEnvironment variables were not injected, and the child was not started because no usable encrypted cache is available for {reference}"
     )
   })?;
+  let now = Utc::now();
+  validate_cache_age(cached.fetched_at, cached.cache_ttl_seconds, now).with_context(|| {
+    format!("{reason}. Environment variables were not injected, and the child was not started for {reference}")
+  })?;
   validate_entries(&cached.entries)?;
   let fetched_at = cached.fetched_at.to_rfc3339_opts(SecondsFormat::Secs, true);
-  let age = format_age(Utc::now().signed_duration_since(cached.fetched_at));
+  let age = format_age(now.signed_duration_since(cached.fetched_at));
   Ok(RuntimeLoad {
     project: cached.project,
     environment: cached.environment,
@@ -211,5 +257,39 @@ fn format_age(age: chrono::Duration) -> String {
     format!("{}h", seconds / (60 * 60))
   } else {
     format!("{}d", seconds / (24 * 60 * 60))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn cache_expires_at_the_boundary_and_reads_do_not_extend_its_lifetime() {
+    let fetched = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+    for ttl in [900_u64, 3600] {
+      for (age, allowed) in [(ttl - 1, true), (ttl, false), (ttl + 1, false)] {
+        assert_eq!(
+          validate_cache_age(
+            fetched,
+            Some(ttl),
+            fetched + chrono::Duration::seconds(age as i64)
+          )
+          .is_ok(),
+          allowed
+        );
+      }
+    }
+  }
+
+  #[test]
+  fn missing_disabled_invalid_policies_and_clock_rollback_fail_closed() {
+    let fetched = Utc::now();
+    for ttl in [None, Some(0), Some(86_401), Some(u64::MAX)] {
+      assert!(validate_cache_age(fetched, ttl, fetched).is_err());
+    }
+    assert!(
+      validate_cache_age(fetched, Some(3600), fetched - chrono::Duration::seconds(1)).is_err()
+    );
   }
 }

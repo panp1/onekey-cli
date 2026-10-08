@@ -44,6 +44,9 @@ pub struct CurlArgs {
 }
 
 pub(crate) const HELP: &str = "\
+Offline cache lifetime is configured by an administrator in Settings → Security.
+Expired caches are refused; a lifetime of 0 disables offline fallback.
+
 Examples:
   onekey curl --bearer github_token https://api.github.com/user
   onekey curl --basic me@example.com:jira_token https://example.atlassian.net/rest/api/3/myself

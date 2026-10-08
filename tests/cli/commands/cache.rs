@@ -53,6 +53,7 @@ fn cached_runtime(
     environment_id: id.into(),
     aliases: vec![format!("alias-{environment}")],
     fetched_at,
+    cache_ttl_seconds: Some(3600),
     entries: vec![SecretInput {
       key: SECRET_KEY.into(),
       value: SECRET_VALUE.into(),

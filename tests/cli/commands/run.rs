@@ -61,6 +61,7 @@ async fn runtime_handler(State(mode): State<Arc<AtomicU8>>) -> impl IntoResponse
           "project": "payment-service",
           "projectId": "prj_01CACHE",
           "groups": ["development"],
+          "cacheTtlSeconds": if mode.load(Ordering::SeqCst) == 8 { 0 } else { 3600 },
           "entries": entries
         }
       })),
@@ -75,6 +76,10 @@ async fn runtime_handler(State(mode): State<Arc<AtomicU8>>) -> impl IntoResponse
       StatusCode::UNAUTHORIZED,
       Json(json!({"error":{"AUTHENTICATION_REQUIRED":"sign in"}})),
     ),
+    7 => (
+      StatusCode::FORBIDDEN,
+      Json(json!({"error":{"AUTHORIZATION_DENIED":"revoked"}})),
+    ),
     3 => (StatusCode::OK, Json(json!({"data":{"invalid":true}}))),
     4 => (
       StatusCode::NOT_FOUND,
@@ -87,6 +92,33 @@ async fn runtime_handler(State(mode): State<Arc<AtomicU8>>) -> impl IntoResponse
     }
     _ => ok(json!([{"key":"API_TOKEN","value":SECRET}])),
   }
+}
+
+#[tokio::test]
+async fn disabled_offline_fallback_removes_the_cached_copy() {
+  let (mode, url, task) = start_server().await;
+  let directory = TempDir::new().unwrap();
+  let server = make_server(&directory, &url);
+  let api = ApiClient::new(&server, Some(TOKEN.into())).unwrap();
+  runtime_cache::load(&server, &api, "payment-service")
+    .await
+    .unwrap();
+  let cache_path = cache_paths(&server).1;
+  assert!(cache_path.exists());
+
+  mode.store(8, Ordering::SeqCst);
+  let live = runtime_cache::load(&server, &api, "payment-service")
+    .await
+    .unwrap();
+  assert!(matches!(
+    live.source,
+    RuntimeSource::Live {
+      cache_warning: None
+    }
+  ));
+  assert_eq!(live.entries[0].value, SECRET);
+  assert!(!cache_path.exists());
+  task.abort();
 }
 
 async fn start_server() -> (Arc<AtomicU8>, String, tokio::task::JoinHandle<()>) {
@@ -185,6 +217,13 @@ async fn live_fetch_refreshes_encrypted_cache_and_falls_back_only_on_availabilit
     .unwrap_err()
     .to_string();
   assert!(unauthorized.contains("AUTHENTICATION_REQUIRED"));
+
+  mode.store(7, Ordering::SeqCst);
+  let forbidden = runtime_cache::load(&server, &api, "payment-service")
+    .await
+    .unwrap_err()
+    .to_string();
+  assert!(forbidden.contains("AUTHORIZATION_DENIED"));
 
   mode.store(4, Ordering::SeqCst);
   let not_found = runtime_cache::load(&server, &api, "payment-service")
@@ -336,4 +375,72 @@ async fn interactive_child_reads_from_the_terminal_and_returns_its_exit_status()
 
   task.abort();
   assert_eq!(status.code(), Some(23));
+}
+
+#[tokio::test]
+async fn expired_or_unbounded_cache_does_not_start_run_or_curl() {
+  use onekey_cli::cli::commands::cache::store::{self, CachedRuntime};
+  use onekey_cli::models::SecretInput;
+  use tokio::process::Command;
+  let (mode, url, task) = start_server().await;
+  mode.store(1, Ordering::SeqCst);
+  let directory = TempDir::new().unwrap();
+  let server = make_server(&directory, &url);
+  for (ttl, age, message) in [
+    (Some(3600), 3601, "offline cache has expired"),
+    (Some(0), 0, "disabled by the server"),
+    (None, 0, "no server-issued TTL"),
+  ] {
+    let cached = CachedRuntime {
+      project: "payment-service".into(),
+      environment: "development".into(),
+      environment_id: "prj_01CACHE".into(),
+      aliases: vec![],
+      fetched_at: chrono::Utc::now() - chrono::Duration::seconds(age),
+      cache_ttl_seconds: ttl,
+      entries: vec![SecretInput {
+        key: "API_TOKEN".into(),
+        value: SECRET.into(),
+      }],
+    };
+    store::save(&server, TOKEN, "payment-service", &cached).unwrap();
+    let original = fs::read(cache_paths(&server).1).unwrap();
+    for arguments in [
+      vec![
+        "run",
+        "payment-service",
+        "--",
+        env!("CARGO_BIN_EXE_onekey"),
+        "--version",
+      ],
+      vec![
+        "curl",
+        "-p",
+        "payment-service",
+        "--bearer",
+        "API_TOKEN",
+        "https://example.test",
+      ],
+    ] {
+      let output = Command::new(env!("CARGO_BIN_EXE_onekey"))
+        .args(["--server", &url, "--data-dir"])
+        .arg(directory.path())
+        .args(arguments)
+        .env("ONEKEY_TOKEN", TOKEN)
+        .output()
+        .await
+        .unwrap();
+      assert!(!output.status.success());
+      assert!(output.stdout.is_empty(), "child ran unexpectedly");
+      let stderr = String::from_utf8_lossy(&output.stderr);
+      assert!(stderr.contains(message), "{stderr}");
+      assert!(!stderr.contains(SECRET));
+    }
+    assert_eq!(
+      fs::read(cache_paths(&server).1).unwrap(),
+      original,
+      "offline reads must not refresh the cache"
+    );
+  }
+  task.abort();
 }

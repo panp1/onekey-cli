@@ -38,6 +38,7 @@ pub struct CachedRuntime {
   pub environment_id: String,
   pub aliases: Vec<String>,
   pub fetched_at: DateTime<Utc>,
+  pub cache_ttl_seconds: Option<u64>,
   pub entries: Vec<SecretInput>,
 }
 
@@ -99,6 +100,8 @@ struct StoredRuntime {
   environment_id: String,
   aliases: Vec<String>,
   fetched_at: DateTime<Utc>,
+  #[serde(default)]
+  cache_ttl_seconds: Option<u64>,
   entries: Vec<SecretInput>,
 }
 
@@ -178,6 +181,7 @@ pub fn save(
       environment_id: runtime.environment_id.clone(),
       aliases,
       fetched_at: runtime.fetched_at,
+      cache_ttl_seconds: runtime.cache_ttl_seconds,
       entries: runtime.entries.clone(),
     },
   );
@@ -191,6 +195,36 @@ pub fn save(
     document.environments.remove(&oldest);
   }
   write_document(&paths.cache, &derived_key[..], &document)
+}
+
+/// Drop one project's cached copy, used when the server disables offline fallback.
+/// A cache this credential cannot read belongs to someone else and is left alone.
+pub fn forget(
+  server: &ResolvedServer,
+  credential: &str,
+  environment_id: &str,
+) -> Result<()> {
+  let paths = paths(server)?;
+  if !paths.cache.exists() {
+    return Ok(());
+  }
+  let lock = open_lock(&paths.lock)?;
+  lock.lock().context("failed to lock run cache")?;
+  let Ok(local_key) = read_key(&paths.key) else {
+    return Ok(());
+  };
+  let derived_key = derive_key(&local_key, credential, &server.url)?;
+  let Ok(mut document) = read_document(&paths.cache, &derived_key[..]) else {
+    return Ok(());
+  };
+  if document.environments.remove(environment_id).is_none() {
+    return Ok(());
+  }
+  if document.environments.is_empty() {
+    remove_cache_file(&paths.cache)
+  } else {
+    write_document(&paths.cache, &derived_key[..], &document)
+  }
 }
 
 pub fn load(
@@ -221,6 +255,7 @@ pub fn load(
     environment_id: cached.environment_id,
     aliases: cached.aliases,
     fetched_at: cached.fetched_at,
+    cache_ttl_seconds: cached.cache_ttl_seconds,
     entries: cached.entries,
   })
 }

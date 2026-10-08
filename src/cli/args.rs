@@ -196,7 +196,8 @@ pub enum Command {
   /// no project argument is given. Secret values are passed to the child
   /// process only and are never printed. A successful fetch refreshes an
   /// encrypted local cache. If the server is unavailable, the last cache for
-  /// the same server, project, and credential is used. Everything after
+  /// the same server, project, and credential is used only within the
+  /// server-issued TTL. Everything after
   /// `--` is the command to run.
   #[command(after_help = run::HELP)]
   Run(RunArgs),
