@@ -2,7 +2,9 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
-## Unreleased
+## 0.7.4 - 2026-10-08
+
+Website login filling for automated testing.
 
 - Add visual website/account configuration, per-origin authorization and revocation, JavaScript and multi-step login filling.
 - Extend MCP with browser connection discovery, bridge status, synchronous/asynchronous filling, result lookup and cancellation. Credentials never enter MCP responses.
