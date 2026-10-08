@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "OneKey Login",
+  "version": "0.2.0",
+  "description": "Authorized website login filling with OneKey for Chrome and Edge.",
+  "permissions": [
+    "nativeMessaging",
+    "activeTab",
+    "scripting",
+    "alarms",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "OneKey Login",
+    "default_popup": "popup.html"
+  },
+  "minimum_chrome_version": "120",
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "http://[::1]/*"
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

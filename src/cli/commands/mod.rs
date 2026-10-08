@@ -6,6 +6,7 @@
 
 pub mod auth;
 pub mod backup;
+pub mod browser;
 pub mod cache;
 pub mod client;
 pub mod config;
@@ -91,6 +92,7 @@ async fn execute_client(
   json_output: bool,
 ) -> Result<i32> {
   match command {
+    Command::Browser { command } => browser::execute(command, server).await,
     Command::Init(args) => init::execute(server, args, json_output).await,
     Command::Project { command } => project::execute(command, server, json_output).await,
     Command::Env { command } => environment::execute(command, server, json_output).await,

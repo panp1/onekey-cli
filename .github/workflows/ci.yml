@@ -44,3 +44,15 @@ jobs:
       - name: Install script syntax
         if: runner.os != 'Windows'
         run: sh -n install.sh
+
+  browser-extension:
+    name: Browser extension tests and packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: node --test browser-extension/test.mjs
+      - run: node browser-extension/package.mjs
+      - run: sh -n browser-extension/install.sh

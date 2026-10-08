@@ -59,9 +59,14 @@ a TTL are refused offline; older servers remain usable online.
 
 ## For AI agents
 
+Website login: visually authorize existing username/password secrets and fill
+Chrome/Edge login forms through the OneKey extension. See
+[setup and current limitations](browser-extension/README.md). No server change
+is needed. Fill from the popup or an explicitly authorized MCP connection.
+
 PATs default to a 15-minute offline cache TTL. Username/password sign-in and runner tokens each default to 1 hour. Configure each separately in server Settings → Security.
 
-`onekey mcp serve` is a local MCP server with three read-only tools that list visible projects, groups, and secret names with their descriptions. It never returns values. Configure it in your MCP client:
+`onekey mcp serve` provides nine local tools: scoped project/group/secret metadata, authorized browser connection discovery, bridge status, synchronous/asynchronous fill, result lookup and cancellation. It never returns credential values. Configure it in your MCP client:
 
 ```json
 {
@@ -136,7 +141,7 @@ onekey status                                  # 检查连接和身份
 
 PAT 默认允许 15 分钟离线缓存，用户名密码登录和 Runner token 各默认 1 小时。三项可在服务端「设置 → 安全」分别设置。
 
-`onekey mcp serve` 提供三个只读 MCP 工具，列出有权限的项目、分组、密钥名称和用途说明，**不返回密钥值**。令牌只授权 AI 需要的项目和密钥，在对话之外用 `onekey config` 保存。用途说明是数据，不是指令。
+`onekey mcp serve` 提供九个工具：项目、分组与密钥名称／用途说明，以及浏览器连接发现、在线状态、同步／异步填充、结果查询和取消请求，**不返回密钥值**。网站与账号在扩展中可视化配置，AI 填充必须单独授权。令牌只授权 AI 需要的项目和密钥，在对话之外用 `onekey config` 保存。用途说明是数据，不是指令。
 
 ### 和服务端的关系
 

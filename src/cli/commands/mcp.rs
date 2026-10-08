@@ -1,4 +1,4 @@
-//! Local MCP server for scoped metadata discovery. Secret values never enter MCP responses.
+//! Local MCP metadata and authorized browser filling. Secret values never enter MCP responses.
 
 use crate::{
   cli::{client, local_config},
@@ -37,7 +37,7 @@ MCP client configuration (stdio subprocess):
 
 Use a scoped personal token saved with `onekey config`, or set ONEKEY_TOKEN.
 Runner tokens also work. Human login sessions are deliberately refused.
-Only project, group, and secret metadata are available; values are never returned.
+Metadata and authorized browser filling are available; values are never returned.
 ";
 
 pub(super) async fn execute(
@@ -61,7 +61,7 @@ async fn serve(server: &local_config::ResolvedServer) -> Result<i32> {
   }
   client::validate_runner_token(token)?;
   let api = client::authenticated_client(server, credential)?;
-  let service = OneKeyMcp::new(api).serve(stdio()).await?;
+  let service = OneKeyMcp::new(api, server).serve(stdio()).await?;
   service.waiting().await?;
   Ok(0)
 }
@@ -70,15 +70,39 @@ async fn serve(server: &local_config::ResolvedServer) -> Result<i32> {
 struct OneKeyMcp {
   api: Arc<client::ApiClient>,
   tool_router: ToolRouter<Self>,
+  server: Arc<local_config::ResolvedServer>,
 }
 
 impl OneKeyMcp {
-  fn new(api: client::ApiClient) -> Self {
+  fn new(
+    api: client::ApiClient,
+    server: &local_config::ResolvedServer,
+  ) -> Self {
     Self {
       api: Arc::new(api),
+      server: Arc::new(local_config::ResolvedServer {
+        url: server.url.clone(),
+        source: server.source,
+        config_path: server.config_path.clone(),
+        config: server.config.clone(),
+      }),
       tool_router: Self::tool_router(),
     }
   }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct BrowserRequestId {
+  /// requestId returned by onekey_request_browser_fill.
+  request_id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct BrowserFillRequest {
+  /// Name of an existing user-authorized browser connection.
+  name: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -161,6 +185,99 @@ fn page<T>(
 #[tool_router(router = tool_router)]
 impl OneKeyMcp {
   #[tool(
+    name = "onekey_get_browser_status",
+    description = "Check whether the OneKey browser extension polled recently, its request TTL and setup requirements. Returns no credentials.",
+    annotations(
+      read_only_hint = true,
+      destructive_hint = false,
+      idempotent_hint = true
+    )
+  )]
+  async fn browser_status(&self) -> Result<Json<serde_json::Value>, String> {
+    super::browser::browser_status(&self.server)
+      .map(Json)
+      .map_err(|_| "Could not inspect browser bridge".into())
+  }
+  #[tool(
+    name = "onekey_request_browser_fill",
+    description = "Queue filling by authorized connection name and immediately return a requestId. Chrome/Edge extension executes in one existing authorized tab within 75 seconds. Poll onekey_get_browser_fill_result. Never submits or returns credentials.",
+    annotations(
+      read_only_hint = false,
+      destructive_hint = false,
+      idempotent_hint = false
+    )
+  )]
+  async fn request_browser_fill(
+    &self,
+    Parameters(request): Parameters<BrowserFillRequest>,
+  ) -> Result<Json<serde_json::Value>, String> {
+    super::browser::enqueue_fill(&self.server,&request.name).map(Json).map_err(|_| "Request refused. Enable AI filling for this connection in the extension and use the same saved PAT/runner token for MCP and native host.".into())
+  }
+  #[tool(
+    name = "onekey_get_browser_fill_result",
+    description = "Get pending, processing, complete, expired or unknown status for a browser fill requestId. Complete outcome is filled/refused/unavailable/canceled. No page content or credentials returned.",
+    annotations(
+      read_only_hint = true,
+      destructive_hint = false,
+      idempotent_hint = true
+    )
+  )]
+  async fn browser_fill_result(
+    &self,
+    Parameters(request): Parameters<BrowserRequestId>,
+  ) -> Result<Json<serde_json::Value>, String> {
+    super::browser::fill_result(&self.server, &request.request_id)
+      .map(Json)
+      .map_err(|_| "Invalid request ID or identity".into())
+  }
+  #[tool(
+    name = "onekey_cancel_browser_fill",
+    description = "Cancel a pending browser fill requestId. Cannot undo credentials already inserted into page inputs. Returns only cancellation status.",
+    annotations(
+      read_only_hint = false,
+      destructive_hint = false,
+      idempotent_hint = true
+    )
+  )]
+  async fn cancel_browser_fill(
+    &self,
+    Parameters(request): Parameters<BrowserRequestId>,
+  ) -> Result<Json<serde_json::Value>, String> {
+    super::browser::cancel_fill(&self.server, &request.request_id)
+      .map(Json)
+      .map_err(|_| "Invalid request ID or identity".into())
+  }
+  #[tool(
+    name = "onekey_list_browser_connections",
+    description = "List enabled website connections explicitly authorized for AI filling. Returns connection names and approved origins, never credentials.",
+    annotations(
+      read_only_hint = true,
+      destructive_hint = false,
+      idempotent_hint = true
+    )
+  )]
+  async fn list_browser_connections(&self) -> Result<Json<serde_json::Value>, String> {
+    super::browser::connections(&self.server)
+      .map(Json)
+      .map_err(|_| "Could not read browser authorizations".into())
+  }
+  #[tool(
+    name = "onekey_fill_browser_connection",
+    description = "Fill an authorized connection in one existing Chrome/Edge login tab through the OneKey extension. Does not submit. Supports username/password steps. Returns only filled/refused/unavailable; never credentials. Requires user-enabled AI filling and website permissions in the extension. Waits up to 60 seconds.",
+    annotations(
+      read_only_hint = false,
+      destructive_hint = false,
+      idempotent_hint = false
+    )
+  )]
+  async fn fill_browser_connection(
+    &self,
+    Parameters(request): Parameters<BrowserFillRequest>,
+  ) -> Result<Json<serde_json::Value>, String> {
+    let outcome = super::browser::request_fill(&self.server, &request.name).await.map_err(|_| "Fill refused or timed out. Authorize the connection and AI filling in the extension; keep one matching Chrome/Edge login tab open.".to_owned())?;
+    Ok(Json(serde_json::json!({"outcome":outcome})))
+  }
+  #[tool(
     name = "onekey_list_projects",
     description = "List projects visible to the configured OneKey token. Returns IDs and names only.",
     annotations(
@@ -175,7 +292,7 @@ impl OneKeyMcp {
   ) -> Result<Json<Page<Project>>, String> {
     let projects = super::ls::visible_projects(&self.api)
       .await
-      .map_err(|error| format!("Could not list OneKey projects: {error:#}"))?
+      .map_err(|_| "Could not list OneKey projects. Check login and token scope.".to_owned())?
       .into_iter()
       .map(|(id, name)| Project { id, name })
       .collect();
@@ -206,7 +323,7 @@ impl OneKeyMcp {
         None,
       )
       .await
-      .map_err(|error| format!("Could not list OneKey groups: {error:#}"))?;
+      .map_err(|_| "Could not list OneKey groups. Check login and token scope.".to_owned())?;
     let mut groups: Vec<Group> = serde_json::from_value(value)
       .map_err(|_| "OneKey returned invalid group metadata".to_owned())?;
     groups.sort_by(|a, b| a.name.cmp(&b.name));
@@ -237,7 +354,7 @@ impl OneKeyMcp {
         None,
       )
       .await
-      .map_err(|error| format!("Could not list OneKey groups: {error:#}"))?;
+      .map_err(|_| "Could not list OneKey groups. Check login and token scope.".to_owned())?;
     let groups: Vec<Group> = serde_json::from_value(value)
       .map_err(|_| "OneKey returned invalid group metadata".to_owned())?;
     let group = groups
@@ -248,7 +365,7 @@ impl OneKeyMcp {
       .api
       .request(Method::GET, &secrets::collection(&group.id), None)
       .await
-      .map_err(|error| format!("Could not list OneKey secret names: {error:#}"))?;
+      .map_err(|_| "Could not list OneKey secret names. Check login and token scope.".to_owned())?;
     let mut secrets: Vec<Secret> = serde_json::from_value(value)
       .map_err(|_| "OneKey returned invalid secret metadata".to_owned())?;
     secrets.sort_by(|a, b| a.key.cmp(&b.key));
@@ -259,6 +376,6 @@ impl OneKeyMcp {
 #[tool_handler(
   router = self.tool_router,
   name = "onekey",
-  instructions = "Read-only access to project, group, and secret metadata. Never ask this server to reveal secret values."
+  instructions = "Discover metadata and fill explicitly authorized browser connections. Browser filling changes page inputs but never submits. Never return secret values."
 )]
 impl ServerHandler for OneKeyMcp {}

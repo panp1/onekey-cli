@@ -2,6 +2,14 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
+## Unreleased
+
+- Add visual website/account configuration, per-origin authorization and revocation, JavaScript and multi-step login filling.
+- Extend MCP with browser connection discovery, bridge status, synchronous/asynchronous filling, result lookup and cancellation. Credentials never enter MCP responses.
+- Add Windows native host registration and Chrome/Edge install/store packages, release assets and update checks.
+- AI filling is approved per connection on the extension options page; bindings changed elsewhere are refused.
+- Fill checks read the real form action and method, skip invisible fields and need a marked username field on username-only steps.
+
 ## 0.7.3 - 2026-10-08
 
 Offline cache lifetime, aligned with OneKey 0.7.3.

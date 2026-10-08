@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="options.css" />
+    <title>OneKey · 网站授权</title>
+  </head>
+  <body>
+    <header>
+      <h1>OneKey 网站登录</h1>
+      <p>选择现有密钥，按网站和账号授权。此页面只读取密钥名称。</p>
+    </header>
+    <main>
+      <aside>
+        <h2>已授权的账号</h2>
+        <select id="bindings" size="10" aria-label="网站账号"></select
+        ><button id="new" type="button">新增账号</button>
+      </aside>
+      <form id="editor">
+        <h2 id="title">新增网站账号</h2>
+        <label
+          >连接名称<input
+            id="name"
+            required
+            maxlength="256"
+            placeholder="公司 Jira"
+        /></label>
+        <label
+          >网站地址<input
+            id="website"
+            type="url"
+            required
+            placeholder="https://accounts.example.com"
+        /></label>
+        <label
+          >AI 填充使用的浏览器<select id="browser">
+            <option value="chrome">Chrome</option>
+            <option value="edge">Edge</option>
+          </select></label
+        >
+        <label
+          >项目<select id="project" required>
+            <option value="">选择项目</option>
+          </select></label
+        >
+        <div class="pair">
+          <label>用户名密钥<select id="usernameKey" required></select></label
+          ><label>密码密钥<select id="passwordKey" required></select></label>
+        </div>
+        <details>
+          <summary>更多页面与跨域设置</summary>
+          <p>
+            分步登录自动识别当前用户名或密码步骤。额外登录域名允许凭据进入该页面；提交域名允许表单向其发送凭据。
+          </p>
+          <label
+            >额外登录域名（每行一个完整 origin）<textarea
+              id="loginOrigins"
+              placeholder="https://sso.example.com"></textarea>
+          </label>
+          <label
+            >额外提交域名（每行一个完整 origin）<textarea
+              id="submitOrigins"
+              placeholder="https://auth.example.com"></textarea>
+          </label>
+          <div class="pair">
+            <label
+              >用户名选择器（可选）<input
+                id="usernameSelector"
+                placeholder='input[name="email"]' /></label
+            ><label
+              >密码选择器（可选）<input
+                id="passwordSelector"
+                placeholder='input[type="password"]'
+            /></label>
+          </div>
+          <label class="check"
+            ><input id="allowJs" type="checkbox" />允许 JS
+            登录表单（无表单／无显式提交方法）</label
+          >
+          <p>
+            JS 的实际请求目标无法通过表单检查确认，仅为可信网站开启。显式 GET
+            表单始终拒绝。
+          </p>
+        </details>
+        <label class="check"
+          ><input id="enabled" type="checkbox" checked />启用此账号授权</label
+        >
+        <label class="check"
+          ><input id="allowAi" type="checkbox" />允许 AI
+          按名称自动填入已打开的登录页</label
+        >
+        <p>
+          AI 填充不会自动提交。浏览器里必须只有一个匹配的登录标签页；验证码和
+          MFA 由你完成。
+        </p>
+        <div class="actions">
+          <button id="save" type="submit">保存并授权</button
+          ><button id="remove" type="button" class="danger" disabled>
+            撤销并删除
+          </button>
+        </div>
+      </form>
+    </main>
+    <p id="status" role="status" aria-live="polite"></p>
+    <footer>
+      密码直接交给目标网页；网页自身和有权限的浏览器调试工具仍可读取输入框。升级
+      CLI 后请重新运行 browser install，Windows 会更新本地桥接副本。
+    </footer>
+    <button id="update" type="button">检查扩展更新</button>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

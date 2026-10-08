@@ -135,9 +135,26 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  browser-extension:
+    name: Test and package browser extension
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: node --test browser-extension/test.mjs
+      - run: node browser-extension/package.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-browser-extension
+          path: browser-extension/*.zip
+          if-no-files-found: error
+          retention-days: 1
+
   publish:
     name: Publish GitHub release
-    needs: build
+    needs: [build, browser-extension]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -161,7 +178,10 @@ jobs:
             "onekey-cli_${v}_windows_amd64.zip"
           )
           for asset in "${expected[@]}"; do test -f "${asset}"; done
-          sha256sum "${expected[@]}" | sort -k2 > checksums.txt
+          browser_assets=(onekey-browser_*.zip onekey-browser-store_*.zip)
+          test "${#browser_assets[@]}" = "2"
+          for asset in "${browser_assets[@]}"; do test -f "${asset}"; done
+          sha256sum "${expected[@]}" "${browser_assets[@]}" | sort -k2 > checksums.txt
           sha256sum --check checksums.txt
       - name: Publish
         env:
@@ -171,9 +191,9 @@ jobs:
           set -euo pipefail
           v="${GITHUB_REF_NAME}"
           if gh release view "${v}" >/dev/null 2>&1; then
-            gh release upload "${v}" release/onekey-cli_* release/checksums.txt --clobber
+            gh release upload "${v}" release/onekey-cli_* release/onekey-browser*.zip release/checksums.txt --clobber
             gh release edit "${v}" --title "OneKey CLI ${v}" --notes-file release/release-notes.md
           else
-            gh release create "${v}" release/onekey-cli_* release/checksums.txt \
+            gh release create "${v}" release/onekey-cli_* release/onekey-browser*.zip release/checksums.txt \
               --title "OneKey CLI ${v}" --notes-file release/release-notes.md --verify-tag
           fi

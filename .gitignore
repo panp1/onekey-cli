@@ -1,1 +1,5 @@
 /target
+/browser-extension/dist/
+
+/browser-extension/*.zip
+/browser-extension/checksums.txt

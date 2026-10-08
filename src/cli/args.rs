@@ -7,8 +7,8 @@ use std::{
 
 use crate::{
   cli::commands::{
-    auth, backup, cache, client, config, curl, environment, export, import, init, ls, mcp, project,
-    restore, run, secret, token, update,
+    auth, backup, browser, cache, client, config, curl, environment, export, import, init, ls, mcp,
+    project, restore, run, secret, token, update,
   },
   constants::help::*,
 };
@@ -92,7 +92,8 @@ impl Cli {
   }
 
   pub fn parse_with_help() -> Self {
-    let arguments = std::env::args_os().collect::<Vec<_>>();
+    let arguments =
+      browser::native_arguments().unwrap_or_else(|| std::env::args_os().collect::<Vec<_>>());
     match Self::try_parse_from(arguments.clone()) {
       Ok(cli) => cli,
       Err(error) if error.kind() == ErrorKind::DisplayVersion => Self::exit_with_version(),
@@ -125,6 +126,12 @@ impl Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
+  /// Bind website logins and connect the Chrome/Edge extension to this CLI.
+  #[command(after_help = browser::HELP)]
+  Browser {
+    #[command(subcommand)]
+    command: browser::BrowserCommand,
+  },
   /// Connect the CLI to a OneKey server (`client connect <url>`).
   ///
   /// Without a saved server, client commands use http://localhost:8840.
@@ -207,7 +214,7 @@ pub enum Command {
   /// List projects, groups and secret names this credential can see.
   #[command(after_help = ls::HELP)]
   Ls(LsArgs),
-  /// Serve read-only OneKey metadata tools over local MCP stdio.
+  /// Serve metadata and authorized browser filling tools over local MCP stdio.
   #[command(after_help = mcp::HELP)]
   Mcp {
     #[command(subcommand)]

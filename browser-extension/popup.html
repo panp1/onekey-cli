@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>OneKey Login</title>
+  </head>
+  <body>
+    <header>
+      <span class="mark">⌘</span>
+      <div>
+        <h1>OneKey Login</h1>
+        <p>已授权的网站凭据填充</p>
+      </div>
+    </header>
+    <p id="origin" class="origin">正在读取当前网站…</p>
+    <label for="connection">网站登录绑定</label>
+    <select id="connection" disabled>
+      <option>正在加载…</option>
+    </select>
+    <button id="fill" disabled>填入当前登录步骤</button>
+    <button id="configure" type="button">管理网站与账号授权</button>
+    <p id="status" role="status" aria-live="polite"></p>
+    <p class="hint">只填当前网站，不自动提交。验证码和 MFA 请自行完成。</p>
+    <details>
+      <summary>首次设置</summary>
+      <p>
+        首次使用先注册本地桥接：<code
+          >onekey browser install --browser chrome|edge --extension-id …</code
+        >。
+        网站、项目和密钥在「管理网站与账号授权」中选择，密码不会显示在此窗口。
+      </p>
+    </details>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

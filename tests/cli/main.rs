@@ -1,4 +1,5 @@
 mod args;
+mod browser;
 mod client;
 mod commands;
 mod dotenv;
