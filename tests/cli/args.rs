@@ -454,13 +454,20 @@ fn validates_qualified_environment_creation_targets() {
   for target in ["storefront/development", "prj_01JTEST/development"] {
     Cli::try_parse_from(["onekey", "group", "create", target]).unwrap();
   }
+  // Names are lowercased; project IDs keep their case.
+  let parsed =
+    Cli::try_parse_from(["onekey", "group", "create", "StoreFront/Development"]).unwrap();
+  assert!(format!("{parsed:?}").contains(r#"project: "storefront", environment: "development""#));
+  let parsed =
+    Cli::try_parse_from(["onekey", "group", "create", "prj_01JTEST/Development"]).unwrap();
+  assert!(format!("{parsed:?}").contains(r#"project: "prj_01JTEST", environment: "development""#));
 
   for target in [
     "storefront",
     "/development",
     "storefront/",
     "storefront/dev/extra",
-    "storefront/Development",
+    "storefront/dev_1",
   ] {
     let error = Cli::try_parse_from(["onekey", "group", "create", target]).unwrap_err();
     assert_eq!(

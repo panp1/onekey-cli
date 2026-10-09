@@ -38,17 +38,23 @@ pub fn parse_create(value: &str) -> Result<EnvironmentTarget, String> {
 fn parse(value: &str) -> Result<EnvironmentTarget, String> {
   let mut parts = value.split('/');
   let project = parts.next().unwrap_or_default();
-  let environment = parts.next().unwrap_or_default();
+  // Names are lowercase slugs (`MyApp` means `myapp`); project IDs keep their case.
+  let project = if project.starts_with(PROJECT_ID_PREFIX) {
+    project.to_owned()
+  } else {
+    project.to_lowercase()
+  };
+  let environment = parts.next().unwrap_or_default().to_lowercase();
   if project.is_empty() || environment.is_empty() || parts.next().is_some() {
     return Err(format!(
       "environment target must use PROJECT/ENVIRONMENT, for example {TARGET_EXAMPLE}"
     ));
   }
-  if !slug::is_valid(environment) {
+  if !slug::is_valid(&environment) {
     return Err("environment name must be a lowercase slug of at most 63 characters".into());
   }
   Ok(EnvironmentTarget {
-    project: project.into(),
-    environment: environment.into(),
+    project,
+    environment,
   })
 }
