@@ -103,6 +103,8 @@ struct BrowserRequestId {
 struct BrowserFillRequest {
   /// Name of an existing user-authorized browser connection.
   name: String,
+  /// Browser chosen by the user for this request: chrome or edge. Never switches browsers automatically.
+  browser: super::browser::BrowserKind,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -200,7 +202,7 @@ impl OneKeyMcp {
   }
   #[tool(
     name = "onekey_request_browser_fill",
-    description = "Queue filling by authorized connection name and immediately return a requestId. Chrome/Edge extension executes in one existing authorized tab within 75 seconds. Poll onekey_get_browser_fill_result. Never submits or returns credentials.",
+    description = "Queue filling by authorized connection name in the user-selected browser (chrome or edge) and immediately return a requestId. The same connection can be used in both browsers. Only the selected browser may claim the request; no fallback to another browser. Executes in one existing authorized tab within 75 seconds. Poll onekey_get_browser_fill_result. Never submits or returns credentials.",
     annotations(
       read_only_hint = false,
       destructive_hint = false,
@@ -211,7 +213,7 @@ impl OneKeyMcp {
     &self,
     Parameters(request): Parameters<BrowserFillRequest>,
   ) -> Result<Json<serde_json::Value>, String> {
-    super::browser::enqueue_fill(&self.server,&request.name).map(Json).map_err(|_| "Request refused. Enable AI filling for this connection in the extension and use the same saved PAT/runner token for MCP and native host.".into())
+    super::browser::enqueue_fill(&self.server,&request.name,request.browser).map(Json).map_err(|_| "Request refused. Select chrome or edge, approve AI filling for this connection in that browser's extension and use the same saved PAT/runner token for MCP and native host.".into())
   }
   #[tool(
     name = "onekey_get_browser_fill_result",
@@ -263,7 +265,7 @@ impl OneKeyMcp {
   }
   #[tool(
     name = "onekey_fill_browser_connection",
-    description = "Fill an authorized connection in one existing Chrome/Edge login tab through the OneKey extension. Does not submit. Supports username/password steps. Returns only filled/refused/unavailable plus a refusal reason code; never credentials. Requires user-enabled AI filling and website permissions in the extension. Waits up to 60 seconds.",
+    description = "Fill an authorized connection in one existing login tab in the user-selected browser (chrome or edge). The connection is shared; never switches browsers automatically. Does not submit. Supports username/password steps. Returns only filled/refused/unavailable plus a refusal reason code; never credentials. Requires AI filling approval and website permissions in the selected browser's extension. Waits up to 60 seconds.",
     annotations(
       read_only_hint = false,
       destructive_hint = false,
@@ -274,7 +276,7 @@ impl OneKeyMcp {
     &self,
     Parameters(request): Parameters<BrowserFillRequest>,
   ) -> Result<Json<serde_json::Value>, String> {
-    let outcome = super::browser::request_fill(&self.server, &request.name).await.map_err(|_| "Fill refused or timed out. Authorize the connection and AI filling in the extension; keep one matching Chrome/Edge login tab open.".to_owned())?;
+    let outcome = super::browser::request_fill(&self.server, &request.name, request.browser).await.map_err(|_| "Fill refused or timed out. Authorize the connection and AI filling in the selected browser's extension; keep one matching login tab open in that browser.".to_owned())?;
     Ok(Json(outcome))
   }
   #[tool(

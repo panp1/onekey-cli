@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OneKey Login",
-  "version": "0.2.2",
+  "version": "0.2.4",
   "description": "Authorized website login filling with OneKey for Chrome and Edge.",
   "permissions": [
     "nativeMessaging",

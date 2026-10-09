@@ -305,7 +305,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
     )["ok"],
     true
   );
-  assert!(browser::enqueue_fill(&server, "work").is_err());
+  assert!(browser::enqueue_fill(&server, "work", browser::BrowserKind::Chrome).is_err());
   binding["allowAi"] = true.into();
   assert_eq!(
     response(
@@ -323,7 +323,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
     browser::connections(&server).unwrap()["connections"][0]["name"],
     "work"
   );
-  let queued = browser::enqueue_fill(&server, "work").unwrap();
+  let queued = browser::enqueue_fill(&server, "work", browser::BrowserKind::Chrome).unwrap();
   let id = queued["requestId"].as_str().unwrap();
   let wrong_browser = response(
     &native(
@@ -369,6 +369,58 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
     browser::fill_result(&server, id).unwrap()["outcome"],
     "filled"
   );
+  // One shared legacy Chrome binding can target either browser at call time.
+  let edge_request = browser::enqueue_fill(&server, "work", browser::BrowserKind::Edge).unwrap();
+  let chrome_request =
+    browser::enqueue_fill(&server, "work", browser::BrowserKind::Chrome).unwrap();
+  assert_eq!(edge_request["browser"], "edge");
+  assert_eq!(chrome_request["browser"], "chrome");
+  assert_eq!(
+    browser::connections(&server).unwrap()["connections"]
+      .as_array()
+      .unwrap()
+      .len(),
+    1
+  );
+  let edge_id = edge_request["requestId"].as_str().unwrap();
+  let chrome_id = chrome_request["requestId"].as_str().unwrap();
+  let edge_poll = response(
+    &native(
+      &dir,
+      &url,
+      &caller,
+      json!({"action":"poll","browser":"edge"}),
+    )
+    .await,
+  );
+  assert_eq!(edge_poll["requests"].as_array().unwrap().len(), 1);
+  assert_eq!(edge_poll["requests"][0]["id"], edge_id);
+  assert_eq!(
+    browser::fill_result(&server, chrome_id).unwrap()["status"],
+    "pending"
+  );
+  let edge_again = response(
+    &native(
+      &dir,
+      &url,
+      &caller,
+      json!({"action":"poll","browser":"edge"}),
+    )
+    .await,
+  );
+  assert!(edge_again["requests"].as_array().unwrap().is_empty());
+  let chrome_poll = response(
+    &native(
+      &dir,
+      &url,
+      &caller,
+      json!({"action":"poll","browser":"chrome"}),
+    )
+    .await,
+  );
+  assert_eq!(chrome_poll["requests"][0]["id"], chrome_id);
+  browser::cancel_fill(&server, edge_id).unwrap();
+  browser::cancel_fill(&server, chrome_id).unwrap();
   assert_eq!(
     browser::browser_status(&server).unwrap()["extensionRecentlyConnected"],
     true
@@ -385,7 +437,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
     std::fs::write(&result_path, serde_json::to_vec(&record).unwrap()).unwrap();
   };
   age_result(60);
-  let queued = browser::enqueue_fill(&server, "work").unwrap();
+  let queued = browser::enqueue_fill(&server, "work", browser::BrowserKind::Chrome).unwrap();
   assert_eq!(
     browser::fill_result(&server, &first).unwrap()["status"],
     "complete"
@@ -402,7 +454,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
     .await,
   );
   // A refusal records only a fixed reason code.
-  let refused = browser::enqueue_fill(&server, "work").unwrap();
+  let refused = browser::enqueue_fill(&server, "work", browser::BrowserKind::Chrome).unwrap();
   let refused_id = refused["requestId"].as_str().unwrap();
   response(
     &native(
@@ -454,7 +506,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
     .await,
   );
   assert_eq!(canceled["ok"], false);
-  let queued = browser::enqueue_fill(&server, "work").unwrap();
+  let queued = browser::enqueue_fill(&server, "work", browser::BrowserKind::Chrome).unwrap();
   // Past the retention window, the next enqueue prunes the old result.
   assert_eq!(
     browser::fill_result(&server, &first).unwrap()["status"],

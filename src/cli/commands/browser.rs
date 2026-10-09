@@ -4,6 +4,7 @@ use crate::constants::api::{environments, secrets};
 use anyhow::{Context, Result, bail};
 use clap::{Subcommand, ValueEnum};
 use reqwest::Method;
+use rmcp::schemars::{self, JsonSchema};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -19,7 +20,8 @@ const HOST_NAME: &str = "com.onekey.browser";
 const MAX_FRAME: usize = 64 * 1024;
 pub const HELP: &str = "Examples:\n  onekey browser add work --origin https://accounts.example.com --project website-logins --username-key LOGIN_USER --password-key LOGIN_PASSWORD\n  onekey browser list\n  onekey browser remove work\n  onekey browser install --browser chrome --extension-id <CHROME_EXTENSION_ID>\n  onekey browser install --browser edge --extension-id <EDGE_EXTENSION_ID>\n\nLoad browser-extension/dist in Chrome or Edge first. Host is an internal, framed stdio transport invoked by Chrome's registered launcher.\n";
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, ValueEnum, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum BrowserKind {
   Chrome,
   Edge,
@@ -132,6 +134,7 @@ pub struct Binding {
   #[serde(default = "enabled")]
   pub enabled: bool,
   #[serde(default)]
+  // Legacy account target. New AI requests select their own browser.
   pub browser: Option<String>,
 }
 fn enabled() -> bool {
@@ -945,6 +948,7 @@ const RESULT_RETENTION_SECONDS: i64 = 15 * 60;
 pub fn enqueue_fill(
   server: &ResolvedServer,
   name: &str,
+  browser: BrowserKind,
 ) -> Result<serde_json::Value> {
   let _lock = settings_lock(server)?;
   let binding = read_settings(server)?
@@ -989,13 +993,15 @@ pub fn enqueue_fill(
     fingerprint: binding.fingerprint()?,
     expires_at: chrono::Utc::now().timestamp() + 75,
     credential_hash,
-    browser: binding.browser,
+    browser: Some(browser.name().into()),
   };
   private_write(
     &queue_path(server, &queued.id, "pending")?,
     &serde_json::to_vec(&queued)?,
   )?;
-  Ok(serde_json::json!({"requestId":queued.id,"status":"pending","expiresAt":queued.expires_at}))
+  Ok(
+    serde_json::json!({"requestId":queued.id,"status":"pending","expiresAt":queued.expires_at,"browser":browser.name()}),
+  )
 }
 pub fn fill_result(
   server: &ResolvedServer,
@@ -1057,8 +1063,9 @@ pub fn cancel_fill(
 pub async fn request_fill(
   server: &ResolvedServer,
   name: &str,
+  browser: BrowserKind,
 ) -> Result<serde_json::Value> {
-  let request = enqueue_fill(server, name)?;
+  let request = enqueue_fill(server, name, browser)?;
   let id = request["requestId"].as_str().unwrap().to_owned();
   struct Cleanup(Vec<PathBuf>);
   impl Drop for Cleanup {

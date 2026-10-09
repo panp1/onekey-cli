@@ -1,6 +1,12 @@
 import { fillLogin } from "./fill.js";
 const HOST = "com.onekey.browser";
-import { safeOrigin, originsOf, approvalOf, approvalKey } from "./policy.js";
+import {
+  safeOrigin,
+  originsOf,
+  approvalOf,
+  approvalKey,
+  currentBrowser,
+} from "./policy.js";
 export { safeOrigin };
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -149,9 +155,7 @@ export async function pollAi() {
   try {
     const { requests } = await native({
       action: "poll",
-      browser: globalThis.navigator?.userAgent?.includes("Edg/")
-        ? "edge"
-        : "chrome",
+      browser: currentBrowser(),
     });
     for (const request of requests) {
       let outcome = "refused";

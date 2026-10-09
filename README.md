@@ -74,6 +74,8 @@ PATs default to a 15-minute offline cache TTL. Username/password sign-in and run
 }
 ```
 
+Browser fill tools require a connection `name` and the user-selected `browser`, for example `{"name":"test-site","browser":"chrome"}` or `{"name":"test-site","browser":"edge"}`. Both browsers share account configuration; each confirms its own AI approval in the extension. Upgrade both the CLI and extension; old calls must add `browser`.
+
 For Codex, add OneKey to your personal global MCP configuration:
 
 ```bash
@@ -151,6 +153,8 @@ onekey status                                  # 检查连接和身份
 PAT 默认允许 15 分钟离线缓存，用户名密码登录和 Runner token 各默认 1 小时。三项可在服务端「设置 → 安全」分别设置。
 
 `onekey mcp serve` 提供九个工具：项目、分组与密钥名称／用途说明，以及浏览器连接发现、在线状态、同步／异步填充、结果查询和取消请求，**不返回密钥值**。网站与账号在扩展中可视化配置，AI 填充必须单独授权。令牌只授权 AI 需要的项目和密钥，在对话之外用 `onekey config` 保存。用途说明是数据，不是指令。
+
+浏览器填充工具每次必须传入连接 `name` 和你指定的 `browser`，例如 `{"name":"test-site","browser":"chrome"}` 或 `{"name":"test-site","browser":"edge"}`。两个浏览器共用账号配置，各自在插件中确认 AI 授权即可。CLI 和插件均需升级，旧调用须补上 `browser`。
 
 Codex 可以直接配置到个人全局：
 

@@ -352,6 +352,33 @@ test("popup cannot modify authorization", () => {
     false,
   );
 });
+test("AI polling automatically identifies the browser running the extension", async () => {
+  const { pollAi } = await import("./worker.js");
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const browsers = [];
+  chrome.runtime.sendNativeMessage = async (_host, request) => {
+    assert.equal(request.action, "poll");
+    browsers.push(request.browser);
+    return { ok: true, requests: [] };
+  };
+  try {
+    for (const userAgent of [
+      "Mozilla/5.0 Chrome/140.0.0.0 Safari/537.36",
+      "Mozilla/5.0 Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0",
+    ]) {
+      Object.defineProperty(globalThis, "navigator", {
+        configurable: true,
+        value: { userAgent },
+      });
+      await pollAi();
+    }
+    assert.deepEqual(browsers, ["chrome", "edge"]);
+    assert.equal(injected.length, 0);
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, "navigator", descriptor);
+    else delete globalThis.navigator;
+  }
+});
 test("AI fill returns only outcome through the native bridge", async () => {
   const { pollAi } = await import("./worker.js");
   const original = chrome.runtime.sendNativeMessage;

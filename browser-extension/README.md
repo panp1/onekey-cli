@@ -24,7 +24,7 @@ Use the built CLI (`target/release/onekey`) until it has replaced your installed
 CLI. Prefer a saved PAT scoped to the website project and necessary secrets;
 configure it with `onekey config` outside the AI conversation.
 
-`onekey-browser_0.2.2.zip` includes the extension and `install.sh` / `install.ps1`.
+`onekey-browser_0.2.4.zip` includes the extension and `install.sh` / `install.ps1`.
 Install helpers accept binary path, browser and extension ID. For Windows:
 
 ```powershell
@@ -95,7 +95,37 @@ save that account's authorization again to request its specific site permission.
 
 ## AI/MCP integration
 
-Enable **允许 AI…** per connection and select Chrome or Edge. Save the same scoped
+Account configuration is shared by Chrome and Edge using the same CLI profile.
+Configure website, project and secrets once, then use the same connection name
+in either browser. Manual filling uses the browser where you click the extension.
+Enable **允许 AI…** per connection. In each browser where AI filling is needed,
+select the existing account and **Save and authorize** to confirm its local AI
+approval and website permission; no need to enter the account configuration again.
+
+Both fill tools require a `browser` parameter (`chrome` or `edge`) chosen by the
+user for each request. The connection's old saved browser field is ignored;
+existing bindings remain readable. Upgrade the CLI as well as the extension.
+Older MCP calls without `browser` must be updated; they are rejected instead of
+guessing a target. Only the selected browser can claim the request, and it never
+falls back to another browser if the target is offline or has no matching tab.
+
+账号配置在使用同一 CLI 配置的 Chrome 和 Edge 间共用，网站、项目和密钥只填一次。
+另一浏览器首次使用 AI 填充时，选择已有账号并「保存并授权」即可，无需重复填表。
+AI 每次调用必须传入你指定的 `browser`（`chrome` 或 `edge`），插件页面不再选择浏览器。
+旧账号配置继续兼容，旧浏览器字段不再用于分发；CLI 和插件均需升级。
+旧 MCP 调用必须补上 `browser`，目标浏览器离线时不会切换到另一个浏览器。
+
+Arguments for `onekey_request_browser_fill` (also accepted by the blocking tool):
+
+```json
+{ "name": "test-site", "browser": "chrome" }
+```
+
+```json
+{ "name": "test-site", "browser": "edge" }
+```
+
+Save the same scoped
 PAT/runner token in the native host profile that MCP uses; a different environment
 token will not cause the bridge to use a higher-privilege saved identity.
 Configure your AI client's MCP process as:
@@ -147,7 +177,7 @@ Available tools:
 | `onekey_list_secret_names`        | Names, descriptions, versions; never values         |
 | `onekey_list_browser_connections` | Enabled, explicitly AI-authorized connections       |
 | `onekey_get_browser_status`       | Recent extension heartbeat and requirements         |
-| `onekey_request_browser_fill`     | Queue by `name`, return requestId immediately       |
+| `onekey_request_browser_fill`     | Queue by `name` and `browser`, return requestId     |
 | `onekey_get_browser_fill_result`  | Query by `request_id`; status/outcome only          |
 | `onekey_cancel_browser_fill`      | Cancel by `request_id`; cannot undo prior insertion |
 | `onekey_fill_browser_connection`  | Convenience blocking fill, up to 60 seconds         |
@@ -167,8 +197,8 @@ values, DOM dumps or screenshots that reveal usernames/passwords after filling.
 
 `package.mjs` builds reproducible ZIPs with SHA-256 checksums:
 
-- `onekey-browser_0.2.2.zip`: local install/upgrade bundle.
-- `onekey-browser-store_0.2.2.zip`: runtime-only package for Chrome Web Store and Edge Add-ons.
+- `onekey-browser_0.2.4.zip`: local install/upgrade bundle.
+- `onekey-browser-store_0.2.4.zip`: runtime-only package for Chrome Web Store and Edge Add-ons.
 
 Both repositories' release workflows test/build these packages and add them to
 the GitHub release assets when a release tag is pushed. No release is published

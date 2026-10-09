@@ -1,5 +1,5 @@
 import { initI18n, t, setText, showError, UIError } from "./i18n.js";
-import { safeOrigin, originsOf } from "./policy.js";
+import { safeOrigin, originsOf, approvalOf, approvalKey } from "./policy.js";
 import {
   hasAllHttpsAccess,
   setAllHttpsAccess,
@@ -10,6 +10,7 @@ const status = $("status");
 let bindings = [],
   projects = [];
 let editing = null;
+let editingAiApproved = false;
 await initI18n();
 const allHttps = $("allHttps");
 const accessStatus = $("accessStatus");
@@ -119,19 +120,22 @@ async function load() {
 }
 async function edit(binding) {
   editing = binding || null;
+  editingAiApproved = false;
   $("editor").reset();
   $("name").disabled = !!binding;
   setText($("title"), binding ? "editAccount" : "newWebsiteAccount");
   $("remove").disabled = !binding;
   for (const key of ["name", "usernameSelector", "passwordSelector"])
     $(key).value = binding?.[key] || "";
-  $("browser").value =
-    binding?.browser ||
-    (navigator.userAgent.includes("Edg/") ? "edge" : "chrome");
   $("website").value = binding?.origin || "";
   $("enabled").checked = binding?.enabled !== false;
   $("allowAi").checked = binding?.allowAi || false;
   $("allowJs").checked = binding?.allowJs || false;
+  if (binding?.allowAi) {
+    const key = approvalKey(binding.name);
+    editingAiApproved =
+      (await chrome.storage.local.get(key))[key] === approvalOf(binding);
+  }
   for (const key of ["loginOrigins", "submitOrigins"])
     $(key).value = (binding?.[key] || []).join("\n");
   $("project").value = binding?.project || "";
@@ -169,7 +173,8 @@ $("editor").addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
     const binding = {
-      browser: $("browser").value,
+      // Account configuration is shared. MCP selects a browser for each request.
+      browser: null,
       name: $("name").value.trim(),
       serverUrl: "",
       origin: origin($("website").value.trim()),
@@ -207,7 +212,7 @@ $("editor").addEventListener("submit", async (event) => {
     if (
       (added.length ||
         changedAccount ||
-        (binding.allowAi && !editing?.allowAi) ||
+        (binding.allowAi && !editingAiApproved) ||
         (binding.allowJs && !editing?.allowJs)) &&
       !window.confirm(
         t("confirmAuthorization", {

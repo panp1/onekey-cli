@@ -9,6 +9,9 @@ export function safeOrigin(value) {
     throw new Error("Use HTTPS; HTTP only for loopback testing.");
   return url.origin;
 }
+export const currentBrowser = () =>
+  globalThis.navigator?.userAgent?.includes("Edg/") ? "edge" : "chrome";
+
 export const originsOf = (binding) => [
   binding.origin,
   ...(binding.loginOrigins || []),

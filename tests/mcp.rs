@@ -98,6 +98,20 @@ async fn stdio_server_lists_only_scoped_metadata() {
   .await;
   let tools = listed["result"]["tools"].as_array().unwrap();
   assert_eq!(tools.len(), 9);
+  for name in [
+    "onekey_request_browser_fill",
+    "onekey_fill_browser_connection",
+  ] {
+    let tool = tools.iter().find(|tool| tool["name"] == name).unwrap();
+    assert!(
+      tool["inputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("browser"))
+    );
+    assert!(tool["inputSchema"].to_string().contains("chrome"));
+    assert!(tool["inputSchema"].to_string().contains("edge"));
+  }
   assert!(
     tools
       .iter()
@@ -161,7 +175,36 @@ async fn stdio_server_lists_only_scoped_metadata() {
     connections["result"]["structuredContent"]["connections"][0]["name"],
     "web"
   );
-  let request=exchange(&mut stdin,&mut stdout,json!({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"onekey_request_browser_fill","arguments":{"name":"web"}}})).await;
+  for (i, name) in [
+    "onekey_request_browser_fill",
+    "onekey_fill_browser_connection",
+  ]
+  .iter()
+  .enumerate()
+  {
+    for (j, arguments) in [
+      json!({"name":"web"}),
+      json!({"name":"web","browser":"firefox"}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+      let invalid = exchange(&mut stdin, &mut stdout, json!({"jsonrpc":"2.0","id":20+i*2+j,"method":"tools/call","params":{"name":name,"arguments":arguments}})).await;
+      assert!(invalid["error"].is_object() || invalid["result"]["isError"] == true);
+    }
+  }
+  let request=exchange(&mut stdin,&mut stdout,json!({"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"onekey_request_browser_fill","arguments":{"name":"web","browser":"chrome"}}})).await;
+  assert_eq!(request["result"]["structuredContent"]["browser"], "chrome");
+  let edge = exchange(&mut stdin, &mut stdout, json!({"jsonrpc":"2.0","id":24,"method":"tools/call","params":{"name":"onekey_request_browser_fill","arguments":{"name":"web","browser":"edge"}}})).await;
+  assert_eq!(edge["result"]["structuredContent"]["browser"], "edge");
+  let edge_id = edge["result"]["structuredContent"]["requestId"]
+    .as_str()
+    .unwrap();
+  let edge_canceled = exchange(&mut stdin, &mut stdout, json!({"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"onekey_cancel_browser_fill","arguments":{"request_id":edge_id}}})).await;
+  assert_eq!(
+    edge_canceled["result"]["structuredContent"]["canceled"],
+    true
+  );
   let id = request["result"]["structuredContent"]["requestId"]
     .as_str()
     .expect("async fill returns a requestId");

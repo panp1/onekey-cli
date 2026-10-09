@@ -4,6 +4,8 @@ All notable changes to the OneKey CLI are documented in this file.
 
 ## Unreleased
 
+- Browser extension 0.2.4 shares account configuration across Chrome and Edge and removes the browser selector. MCP fill tools require the user-selected `browser` (`chrome` or `edge`) per request; legacy account browser fields are ignored for routing. Each browser confirms its own AI filling approval without re-entering account configuration.
+
 - A refused AI fill now reports a fixed reason code (for example `noTab`, `multipleTabs`, `notApproved`, `noPermission`) through MCP; no page text or credentials.
 - Browser extension 0.2.2 adds an opt-in, revocable all-HTTPS site access switch in English and Chinese. Browser access remains separate from website/account and AI filling authorization.
 
