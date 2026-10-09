@@ -1,17 +1,20 @@
+import { initI18n, setText, showError, UIError } from "./i18n.js";
 const origin = document.querySelector("#origin");
 const connection = document.querySelector("#connection");
 const fill = document.querySelector("#fill");
 const status = document.querySelector("#status");
+await initI18n();
 async function send(request) {
   const response = await chrome.runtime.sendMessage(request);
   if (!response?.ok)
-    throw new Error(
-      response?.error || "本地桥接不可用，请检查安装和 CLI 登录。",
-    );
+    throw response?.error
+      ? new Error(response.error)
+      : new UIError("bridgeUnavailable");
   return response;
 }
 try {
   const response = await send({ action: "list" });
+  delete origin.dataset.i18n;
   origin.textContent = response.origin;
   connection.replaceChildren();
   for (const binding of response.bindings) {
@@ -22,25 +25,22 @@ try {
   }
   connection.disabled = response.bindings.length === 0;
   fill.disabled = connection.disabled;
-  if (connection.disabled)
-    status.textContent =
-      "当前网站没有已授权的账号，请点击「管理网站与账号授权」添加。";
+  if (connection.disabled) setText(status, "noAccounts");
 } catch {
-  origin.textContent = "尚未连接 OneKey";
-  connection.replaceChildren(new Option("本地桥接不可用", ""));
-  status.textContent = "请先注册本地桥接并配置 CLI 登录，然后重新打开此窗口。";
+  setText(origin, "notConnected");
+  const unavailable = new Option("", "");
+  setText(unavailable, "bridgeUnavailableShort");
+  connection.replaceChildren(unavailable);
+  setText(status, "bridgeUnavailable");
 }
 fill.addEventListener("click", async () => {
   fill.disabled = true;
-  status.textContent = "正在获取并填入凭据…";
+  setText(status, "filling");
   try {
     const response = await send({ action: "fill", name: connection.value });
-    status.textContent =
-      response.source === "cache"
-        ? "已使用有效期内的离线缓存填入。请检查页面后提交登录。"
-        : "已填入。请检查页面后提交登录。";
+    setText(status, response.source === "cache" ? "filledCache" : "filledLive");
   } catch (error) {
-    status.textContent = error.message;
+    showError(status, error);
   } finally {
     fill.disabled = false;
   }

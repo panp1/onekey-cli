@@ -1,113 +1,166 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="options.css" />
-    <title>OneKey · 网站授权</title>
+    <title data-i18n="pageTitle">OneKey · Website authorization</title>
   </head>
   <body>
     <header>
-      <h1>OneKey 网站登录</h1>
-      <p>选择现有密钥，按网站和账号授权。此页面只读取密钥名称。</p>
+      <div class="language-control">
+        <label for="language" data-i18n="language">Language</label
+        ><select id="language">
+          <option value="en">English</option>
+          <option value="zh">简体中文</option>
+        </select>
+      </div>
+      <h1 data-i18n="appTitle">OneKey Website Login</h1>
+      <p data-i18n="intro">
+        Choose existing secrets and authorize each website and account. This
+        page reads secret names only.
+      </p>
     </header>
     <main>
       <aside>
-        <h2>已授权的账号</h2>
-        <select id="bindings" size="10" aria-label="网站账号"></select
-        ><button id="new" type="button">新增账号</button>
+        <h2 data-i18n="authorizedAccounts">Authorized accounts</h2>
+        <select
+          id="bindings"
+          size="10"
+          aria-label="Website accounts"
+          data-i18n-label="accountsLabel"></select
+        ><button id="new" type="button" data-i18n="newAccount">
+          Add account
+        </button>
       </aside>
       <form id="editor">
-        <h2 id="title">新增网站账号</h2>
+        <h2 id="title" data-i18n="newWebsiteAccount">Add website account</h2>
         <label
-          >连接名称<input
+          ><span data-i18n="connectionName">Connection name</span
+          ><input
             id="name"
             required
             maxlength="256"
-            placeholder="公司 Jira"
+            placeholder="Work Jira"
+            data-i18n-placeholder="connectionPlaceholder"
         /></label>
         <label
-          >网站地址<input
+          ><span data-i18n="website">Website origin</span
+          ><input
             id="website"
             type="url"
             required
             placeholder="https://accounts.example.com"
         /></label>
         <label
-          >AI 填充使用的浏览器<select id="browser">
+          ><span data-i18n="aiBrowser">Browser for AI filling</span
+          ><select id="browser">
             <option value="chrome">Chrome</option>
             <option value="edge">Edge</option>
           </select></label
         >
         <label
-          >项目<select id="project" required>
-            <option value="">选择项目</option>
+          ><span data-i18n="project">Project</span
+          ><select id="project" required>
+            <option value="" data-i18n="chooseProject">Choose a project</option>
           </select></label
         >
         <div class="pair">
-          <label>用户名密钥<select id="usernameKey" required></select></label
-          ><label>密码密钥<select id="passwordKey" required></select></label>
+          <label
+            ><span data-i18n="usernameKey">Username secret</span
+            ><select id="usernameKey" required></select></label
+          ><label
+            ><span data-i18n="passwordKey">Password secret</span
+            ><select id="passwordKey" required></select
+          ></label>
         </div>
         <details>
-          <summary>更多页面与跨域设置</summary>
-          <p>
-            分步登录自动识别当前用户名或密码步骤。额外登录域名允许凭据进入该页面；提交域名允许表单向其发送凭据。
+          <summary data-i18n="advanced">
+            More login pages and cross-origin settings
+          </summary>
+          <p data-i18n="stepsHint">
+            Multi-step login detects the current username or password step.
+            Additional login origins allow credentials on those pages; submit
+            origins allow forms to send credentials there.
           </p>
           <label
-            >额外登录域名（每行一个完整 origin）<textarea
+            ><span data-i18n="loginOrigins"
+              >Additional login origins (one complete origin per line)</span
+            ><textarea
               id="loginOrigins"
               placeholder="https://sso.example.com"></textarea>
           </label>
           <label
-            >额外提交域名（每行一个完整 origin）<textarea
+            ><span data-i18n="submitOrigins"
+              >Additional submit origins (one complete origin per line)</span
+            ><textarea
               id="submitOrigins"
               placeholder="https://auth.example.com"></textarea>
           </label>
           <div class="pair">
             <label
-              >用户名选择器（可选）<input
+              ><span data-i18n="usernameSelector"
+                >Username selector (optional)</span
+              ><input
                 id="usernameSelector"
                 placeholder='input[name="email"]' /></label
             ><label
-              >密码选择器（可选）<input
+              ><span data-i18n="passwordSelector"
+                >Password selector (optional)</span
+              ><input
                 id="passwordSelector"
                 placeholder='input[type="password"]'
             /></label>
           </div>
           <label class="check"
-            ><input id="allowJs" type="checkbox" />允许 JS
-            登录表单（无表单／无显式提交方法）</label
+            ><input id="allowJs" type="checkbox" /><span data-i18n="allowJs"
+              >Allow JS login pages (no form or no declared submit method)</span
+            ></label
           >
-          <p>
-            JS 的实际请求目标无法通过表单检查确认，仅为可信网站开启。显式 GET
-            表单始终拒绝。
+          <p data-i18n="jsHint">
+            JS request destinations cannot be verified by inspecting forms.
+            Enable this only for trusted websites. Explicit GET forms are always
+            refused.
           </p>
         </details>
         <label class="check"
-          ><input id="enabled" type="checkbox" checked />启用此账号授权</label
+          ><input id="enabled" type="checkbox" checked /><span
+            data-i18n="enabled"
+            >Enable this account authorization</span
+          ></label
         >
         <label class="check"
-          ><input id="allowAi" type="checkbox" />允许 AI
-          按名称自动填入已打开的登录页</label
+          ><input id="allowAi" type="checkbox" /><span data-i18n="allowAi"
+            >Allow AI to fill an open login page by connection name</span
+          ></label
         >
-        <p>
-          AI 填充不会自动提交。浏览器里必须只有一个匹配的登录标签页；验证码和
-          MFA 由你完成。
+        <p data-i18n="aiHint">
+          AI filling never submits. Keep exactly one matching login tab open;
+          complete CAPTCHA and MFA yourself.
         </p>
         <div class="actions">
-          <button id="save" type="submit">保存并授权</button
-          ><button id="remove" type="button" class="danger" disabled>
-            撤销并删除
+          <button id="save" type="submit" data-i18n="save">
+            Save and authorize</button
+          ><button
+            id="remove"
+            type="button"
+            class="danger"
+            disabled
+            data-i18n="remove">
+            Revoke and delete
           </button>
         </div>
       </form>
     </main>
     <p id="status" role="status" aria-live="polite"></p>
-    <footer>
-      密码直接交给目标网页；网页自身和有权限的浏览器调试工具仍可读取输入框。升级
-      CLI 后请重新运行 browser install，Windows 会更新本地桥接副本。
+    <footer data-i18n="footer">
+      Passwords go directly to the destination website; the website and
+      privileged browser debugging tools can still read inputs. After upgrading
+      the CLI, run browser install again to update the Windows native host copy.
     </footer>
-    <button id="update" type="button">检查扩展更新</button>
+    <button id="update" type="button" data-i18n="update">
+      Check extension updates
+    </button>
     <script type="module" src="options.js"></script>
   </body>
 </html>

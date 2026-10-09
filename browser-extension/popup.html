@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,29 +7,48 @@
     <title>OneKey Login</title>
   </head>
   <body>
+    <div class="language-control">
+      <label for="language" data-i18n="language">Language</label
+      ><select id="language">
+        <option value="en">English</option>
+        <option value="zh">简体中文</option>
+      </select>
+    </div>
     <header>
       <span class="mark">⌘</span>
       <div>
         <h1>OneKey Login</h1>
-        <p>已授权的网站凭据填充</p>
+        <p data-i18n="popupSubtitle">Authorized website credential filling</p>
       </div>
     </header>
-    <p id="origin" class="origin">正在读取当前网站…</p>
-    <label for="connection">网站登录绑定</label>
-    <select id="connection" disabled>
-      <option>正在加载…</option>
+    <p id="origin" class="origin" data-i18n="readingWebsite">
+      Reading current website…
+    </p>
+    <label for="connection" data-i18n="connectionLabel"
+      >Website connection</label
+    ><select id="connection" disabled>
+      <option data-i18n="loading">Loading…</option>
     </select>
-    <button id="fill" disabled>填入当前登录步骤</button>
-    <button id="configure" type="button">管理网站与账号授权</button>
+    <button id="fill" disabled data-i18n="fill">Fill current login step</button
+    ><button id="configure" type="button" data-i18n="configure">
+      Manage websites and accounts
+    </button>
     <p id="status" role="status" aria-live="polite"></p>
-    <p class="hint">只填当前网站，不自动提交。验证码和 MFA 请自行完成。</p>
+    <p class="hint" data-i18n="popupHint">
+      Fill this website only, without submitting. Complete CAPTCHA and MFA
+      yourself.
+    </p>
     <details>
-      <summary>首次设置</summary>
+      <summary data-i18n="firstSetup">First-time setup</summary>
       <p>
-        首次使用先注册本地桥接：<code
+        <span data-i18n="setupBefore">Register the native host first:</span>
+        <code
           >onekey browser install --browser chrome|edge --extension-id …</code
-        >。
-        网站、项目和密钥在「管理网站与账号授权」中选择，密码不会显示在此窗口。
+        >.
+        <span data-i18n="setupAfter"
+          >Choose websites, projects and secrets in “Manage websites and
+          accounts”. Passwords are never displayed here.</span
+        >
       </p>
     </details>
     <script type="module" src="popup.js"></script>

@@ -497,3 +497,139 @@ test("options save records and remove clears the AI approval", async () => {
   await call({ action: "remove", name: "work" });
   assert.deepEqual(await chrome.storage.local.get(key), {});
 });
+
+// Language preference and live page updates must never reset account drafts.
+const {
+  messages,
+  initI18n,
+  setLanguage,
+  getLanguage,
+  setText,
+  showError,
+  UIError,
+} = await import("./i18n.js");
+function languagePage() {
+  const nodes = [];
+  const element = (dataset = {}, value = "") => {
+    const node = {
+      dataset,
+      value,
+      textContent: "",
+      attrs: {},
+      setAttribute(name, value) {
+        this.attrs[name] = value;
+      },
+    };
+    nodes.push(node);
+    return node;
+  };
+  const language = element({}, "en");
+  language.addEventListener = () => {};
+  const title = element({ i18n: "newWebsiteAccount" });
+  const status = element();
+  const name = element(
+    { i18nPlaceholder: "connectionPlaceholder" },
+    "User's unsaved account",
+  );
+  const binding = element();
+  setText(binding, "accountDisabled", { name: "账号 <script> & account" });
+  globalThis.document = {
+    documentElement: { lang: "" },
+    querySelector: (selector) =>
+      selector === "#language"
+        ? language
+        : selector === "#status"
+          ? status
+          : null,
+    querySelectorAll: (selector) =>
+      nodes.filter((node) =>
+        selector === "[data-i18n]"
+          ? node.dataset.i18n
+          : selector === "[data-i18n-placeholder]"
+            ? node.dataset.i18nPlaceholder
+            : node.dataset.i18nLabel,
+      ),
+  };
+  return { language, title, status, name, binding };
+}
+test("all English/Chinese UI keys and interpolation parameters are complete", async () => {
+  const { readFile } = await import("node:fs/promises");
+  assert.deepEqual(
+    Object.keys(messages.en).sort(),
+    Object.keys(messages.zh).sort(),
+  );
+  for (const key of Object.keys(messages.en)) {
+    assert(messages.en[key].trim());
+    assert(messages.zh[key].trim());
+    const params = (text) =>
+      [...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
+    assert.deepEqual(params(messages.en[key]), params(messages.zh[key]), key);
+  }
+  for (const name of ["options.html", "popup.html", "options.js", "popup.js"]) {
+    const source = await readFile(new URL(name, import.meta.url), "utf8");
+    const keys = [
+      ...source.matchAll(/data-i18n(?:-placeholder|-label)?="([\w]+)"/g),
+      ...source.matchAll(/\b(?:t|UIError)\("([\w]+)"/g),
+      ...source.matchAll(/setText\([^,]+,\s*"([\w]+)"/g),
+    ].map((match) => match[1]);
+    for (const key of keys) assert(key in messages.en, `${name}: ${key}`);
+  }
+});
+test("fresh installation defaults to English even on a Chinese browser", async () => {
+  const page = languagePage();
+  await initI18n();
+  assert.equal(getLanguage(), "en");
+  assert.equal(document.documentElement.lang, "en");
+  assert.equal(page.title.textContent, "Add website account");
+  assert.equal(page.language.value, "en");
+});
+test("language changes persist, translate status and preserve form values", async () => {
+  const page = languagePage();
+  await initI18n();
+  setText(page.status, "saved");
+  await setLanguage("zh");
+  assert.equal((await chrome.storage.local.get("language")).language, "zh");
+  assert.equal(document.documentElement.lang, "zh-CN");
+  assert.equal(page.title.textContent, "新增网站账号");
+  assert(page.status.textContent.startsWith("已保存授权"));
+  assert.equal(page.name.value, "User's unsaved account");
+  assert.equal(page.name.attrs.placeholder, "公司 Jira");
+  assert.equal(page.binding.textContent, "已停用 · 账号 <script> & account");
+  await initI18n();
+  assert.equal(getLanguage(), "zh");
+  await setLanguage("en");
+  assert(page.status.textContent.startsWith("Authorization saved"));
+});
+test("other extension pages react to stored language changes", async () => {
+  let changed;
+  chrome.storage.onChanged = {
+    addListener: (fn) => {
+      changed = fn;
+    },
+  };
+  const page = languagePage();
+  await initI18n();
+  changed({ language: { newValue: "zh" } }, "local");
+  assert.equal(page.title.textContent, "新增网站账号");
+  changed({ language: { newValue: "en" } }, "sync");
+  assert.equal(getLanguage(), "zh");
+  changed({ language: { newValue: "unsupported" } }, "local");
+  assert.equal(getLanguage(), "en");
+  assert.equal(page.name.value, "User's unsaved account");
+});
+test("UI errors are translated without exposing unknown native error bodies", async () => {
+  const page = languagePage();
+  await initI18n();
+  await setLanguage("zh");
+  showError(page.status, new UIError("permissionDenied"));
+  assert(page.status.textContent.includes("未授予网站权限"));
+  showError(
+    page.status,
+    new Error(
+      "OneKey bridge refused the request. Check login, host installation and authorization.",
+    ),
+  );
+  assert(page.status.textContent.includes("OneKey 拒绝"));
+  showError(page.status, new Error("MUST_NOT_LEAK"));
+  assert(!page.status.textContent.includes("MUST_NOT_LEAK"));
+});

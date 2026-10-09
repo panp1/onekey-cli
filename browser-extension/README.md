@@ -24,7 +24,7 @@ Use the built CLI (`target/release/onekey`) until it has replaced your installed
 CLI. Prefer a saved PAT scoped to the website project and necessary secrets;
 configure it with `onekey config` outside the AI conversation.
 
-`onekey-browser_0.2.0.zip` includes the extension and `install.sh` / `install.ps1`.
+`onekey-browser_0.2.1.zip` includes the extension and `install.sh` / `install.ps1`.
 Install helpers accept binary path, browser and extension ID. For Windows:
 
 ```powershell
@@ -39,9 +39,17 @@ separate registrations. Re-run installation after changing binary, profile,
 server or after upgrading the Windows CLI. `--manifest-dir` stages registration
 without changing browser registration; use an isolated `--data-dir` for tests.
 
+## UI language
+
+The popup and configuration page default to English. Use the **Language** selector
+on either page to switch between English and 简体中文. The preference is saved in
+extension-local storage, shared by both pages, and applied immediately without
+clearing account configuration or unsaved form inputs. Website names, project
+names and secret names remain exactly as provided.
+
 ## Configure websites visually
 
-Click the extension → **管理网站与账号授权**. Choose a project and existing username /
+Click the extension → **Manage websites and accounts** (中文：**管理网站与账号授权**). Choose a project and existing username /
 password secret names. Enter an exact HTTPS origin (no path; HTTP only loopback
 for development). Name the connection and save; newly added domains and changes
 to sensitive permissions require confirmation and browser site permission.
@@ -124,8 +132,8 @@ values, DOM dumps or screenshots that reveal usernames/passwords after filling.
 
 `package.mjs` builds reproducible ZIPs with SHA-256 checksums:
 
-- `onekey-browser_0.2.0.zip`: local install/upgrade bundle.
-- `onekey-browser-store_0.2.0.zip`: runtime-only package for Chrome Web Store and Edge Add-ons.
+- `onekey-browser_0.2.1.zip`: local install/upgrade bundle.
+- `onekey-browser-store_0.2.1.zip`: runtime-only package for Chrome Web Store and Edge Add-ons.
 
 Both repositories' release workflows test/build these packages and add them to
 the GitHub release assets when a release tag is pushed. No release is published

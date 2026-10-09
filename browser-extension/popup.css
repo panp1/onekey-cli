@@ -95,3 +95,21 @@ details {
 code {
   overflow-wrap: anywhere;
 }
+
+.language-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.language-control label {
+  margin: 0;
+  font-size: 12px;
+}
+.language-control select {
+  width: auto;
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+}

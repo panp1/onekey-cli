@@ -7,7 +7,8 @@ to an extension publisher. It does not load remote scripts.
 
 Website account bindings contain website origins, project/secret names, selectors,
 and user-selected authorization flags. They are stored by the CLI in the local
-OneKey profile. Passwords are not saved in extension storage. The CLI may use its
+OneKey profile. The selected UI language is saved locally in extension storage.
+Passwords are not saved in extension storage. The CLI may use its
 existing encrypted offline cache under the server-selected authentication TTL.
 
 When filling, credentials pass from the native host to the extension background

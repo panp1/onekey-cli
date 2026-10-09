@@ -2,6 +2,10 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
+## Unreleased
+
+- Browser extension 0.2.1 supports English and Simplified Chinese, defaults to English, and saves the language selected in the popup or configuration page.
+
 ## 0.7.4 - 2026-10-08
 
 Website login filling for automated testing.

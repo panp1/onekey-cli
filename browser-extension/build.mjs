@@ -15,6 +15,7 @@ const files = [
   "popup.css",
   "popup.js",
   "policy.js",
+  "i18n.js",
   "options.html",
   "options.css",
   "options.js",
