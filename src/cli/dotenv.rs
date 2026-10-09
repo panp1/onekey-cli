@@ -32,39 +32,45 @@ pub fn parse(text: &str) -> Result<Vec<SecretInput>> {
   Ok(entries)
 }
 fn parse_value(value: &str) -> Result<String> {
-  if let Some(value) = value.strip_prefix('"') {
-    let Some(inner) = value.strip_suffix('"') else {
-      bail!("unterminated double quote")
+  let Some(quote) = value.chars().next().filter(|ch| *ch == '"' || *ch == '\'') else {
+    // Unquoted: an inline comment starts at " #".
+    return Ok(value.split(" #").next().unwrap_or(value).trim_end().into());
+  };
+  let mut output = String::new();
+  let mut chars = value[1..].char_indices();
+  let close = loop {
+    let Some((index, ch)) = chars.next() else {
+      bail!(
+        "unterminated {} quote",
+        if quote == '"' { "double" } else { "single" }
+      )
     };
-    let mut output = String::new();
-    let mut chars = inner.chars();
-    while let Some(ch) = chars.next() {
-      if ch == '\\' {
-        match chars.next() {
-          Some('n') => output.push('\n'),
-          Some('r') => output.push('\r'),
-          Some('t') => output.push('\t'),
-          Some('"') => output.push('"'),
-          Some('\\') => output.push('\\'),
-          Some(other) => {
-            output.push('\\');
-            output.push(other)
-          }
-          None => bail!("unfinished escape"),
-        }
-      } else {
-        output.push(ch)
-      }
+    if ch == quote {
+      break index + 1;
     }
-    return Ok(output);
+    if quote == '"' && ch == '\\' {
+      match chars.next().map(|(_, ch)| ch) {
+        Some('n') => output.push('\n'),
+        Some('r') => output.push('\r'),
+        Some('t') => output.push('\t'),
+        Some('"') => output.push('"'),
+        Some('\\') => output.push('\\'),
+        Some(other) => {
+          output.push('\\');
+          output.push(other)
+        }
+        None => bail!("unfinished escape"),
+      }
+    } else {
+      output.push(ch)
+    }
+  };
+  // After the closing quote only whitespace and an optional `# comment` may follow.
+  let rest = value[1 + close..].trim_start();
+  if !rest.is_empty() && !rest.starts_with('#') {
+    bail!("unexpected text after the closing quote");
   }
-  if let Some(value) = value.strip_prefix('\'') {
-    let Some(inner) = value.strip_suffix('\'') else {
-      bail!("unterminated single quote")
-    };
-    return Ok(inner.into());
-  }
-  Ok(value.split(" #").next().unwrap_or(value).trim_end().into())
+  Ok(output)
 }
 pub fn render(entries: &[SecretInput]) -> String {
   let mut output = String::new();
