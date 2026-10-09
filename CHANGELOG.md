@@ -2,6 +2,12 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
+## 0.7.7 - 2026-10-09
+
+Case-insensitive project and group names.
+
+- Project and group names in `PROJECT/GROUP` targets are case-insensitive (`StoreFront/Development` means `storefront/development`); project IDs keep their case.
+
 ## 0.7.6 - 2026-10-09
 
 YAML templates for `onekey run`.
