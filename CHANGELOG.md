@@ -2,6 +2,12 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
+## 0.7.6 - 2026-10-09
+
+YAML templates for `onekey run`.
+
+- `onekey run --template <YAML> -- <COMMAND>` replaces quoted or unquoted `#{{NAME}}#` string-value placeholders with OneKey secrets and delivers escaped YAML to the child's stdin. Supports nested structures and multiple documents, leaves the source unchanged, never creates a rendered file, and refuses missing secrets or invalid templates before starting the child. An unquoted whole-value placeholder becomes an integer or boolean when the secret is exactly a canonical one (`replicas: #{{REPLICAS}}#`); quoted, block and embedded placeholders stay strings.
+
 ## 0.7.5 - 2026-10-09
 
 Faster, easier browser login filling.
