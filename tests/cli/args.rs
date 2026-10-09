@@ -192,6 +192,34 @@ fn run_accepts_the_short_token_flag() {
 }
 
 #[test]
+fn run_accepts_yaml_template_before_the_child_separator() {
+  for child in [
+    vec!["kubectl", "apply", "-f", "-"],
+    vec![
+      "helm",
+      "upgrade",
+      "--install",
+      "myapp",
+      "./chart",
+      "-f",
+      "-",
+    ],
+  ] {
+    let mut args = vec!["onekey", "run", "billing", "--template", "input.yaml", "--"];
+    args.extend(child.iter().copied());
+    let cli = Cli::try_parse_from(args).unwrap();
+    let Command::Run(RunArgs {
+      template, command, ..
+    }) = cli.command
+    else {
+      panic!("expected run command");
+    };
+    assert_eq!(template.unwrap(), std::path::Path::new("input.yaml"));
+    assert_eq!(command, child);
+  }
+}
+
+#[test]
 fn login_does_not_accept_the_short_token_flag() {
   assert!(Cli::try_parse_from(["onekey", "login", "-t"]).is_err());
 }

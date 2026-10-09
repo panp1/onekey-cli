@@ -1,6 +1,7 @@
 mod args;
 pub mod cache;
 mod handler;
+mod template;
 
 pub(crate) use args::HELP;
 pub use args::RunArgs;

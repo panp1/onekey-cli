@@ -3,7 +3,9 @@ use super::cache::{self as runtime_cache, RuntimeLoad, RuntimeSource};
 use crate::cli::{client, local_config};
 use crate::constants::config::ENV_RUN_ENVIRONMENT;
 use anyhow::{Context, Result, bail};
-use std::env;
+use std::{env, io::ErrorKind, process::Stdio};
+use tokio::io::AsyncWriteExt;
+use zeroize::Zeroizing;
 
 pub(crate) async fn execute(
   server: &local_config::ResolvedServer,
@@ -12,6 +14,7 @@ pub(crate) async fn execute(
   let RunArgs {
     environment,
     token,
+    template,
     shell,
     command,
   } = args;
@@ -19,12 +22,43 @@ pub(crate) async fn execute(
     Some(script) => shell_command(script),
     None => command,
   };
+  let template = template
+    .map(|path| {
+      std::fs::read_to_string(&path)
+        .map(Zeroizing::new)
+        .with_context(|| format!("failed to read template {}", path.display()))
+    })
+    .transpose()?;
   let loaded = load(server, environment, token).await?;
+  let rendered = template
+    .as_deref()
+    .map(|text| super::template::render(text, &loaded.entries).map(Zeroizing::new))
+    .transpose()?;
   let program = command.first().context("run requires a child command")?;
   let mut child_command = tokio::process::Command::new(program);
   child_command.args(&command[1..]).env_remove("ONEKEY_TOKEN");
   for entry in loaded.entries {
     child_command.env(entry.key, entry.value);
+  }
+  if let Some(rendered) = rendered {
+    let mut child = child_command
+      .stdin(Stdio::piped())
+      .kill_on_drop(true)
+      .spawn()
+      .with_context(|| format!("failed to start {program}"))?;
+    let mut stdin = child.stdin.take().context("child stdin unavailable")?;
+    let written = stdin.write_all(rendered.as_bytes()).await;
+    drop(stdin);
+    drop(rendered);
+    let status = child.wait().await?;
+    if let Err(error) = written {
+      // Preserve a rejecting command's own failure; a successful command must
+      // not hide an incomplete template delivery.
+      if error.kind() != ErrorKind::BrokenPipe || status.success() {
+        return Err(error).context("failed to send rendered YAML to the child");
+      }
+    }
+    return Ok(exit_code(status));
   }
   #[cfg(unix)]
   {
@@ -39,6 +73,20 @@ pub(crate) async fn execute(
       .spawn()
       .with_context(|| format!("failed to start {program}"))?;
     Ok(child.wait().await?.code().unwrap_or(1))
+  }
+}
+
+fn exit_code(status: std::process::ExitStatus) -> i32 {
+  #[cfg(unix)]
+  {
+    use std::os::unix::process::ExitStatusExt;
+    status
+      .code()
+      .unwrap_or_else(|| 128 + status.signal().unwrap_or(1))
+  }
+  #[cfg(not(unix))]
+  {
+    status.code().unwrap_or(1)
   }
 }
 

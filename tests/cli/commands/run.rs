@@ -308,6 +308,94 @@ async fn unavailable_server_without_cache_does_not_provide_runtime_values() {
   assert!(error.contains("child was not started"));
 }
 
+// Reuse this integration-test executable as a portable, trusted stdin consumer.
+// This fixture uses synthetic values only and never prints the rendered input.
+#[test]
+fn template_child_receiver() {
+  let Some(marker) = std::env::var_os("ONEKEY_TEST_TEMPLATE_CHILD") else {
+    return;
+  };
+  use std::io::Read;
+  let mut text = String::new();
+  std::io::stdin().read_to_string(&mut text).unwrap();
+  let doc: Value = serde_saphyr::from_str(&text).unwrap();
+  assert_eq!(doc["stringData"]["password"], SECRET);
+  assert_eq!(doc["stringData"]["literal"], "${API_TOKEN}");
+  assert_eq!(std::env::var("API_TOKEN").unwrap(), SECRET);
+  assert!(std::env::var_os("ONEKEY_TOKEN").is_none());
+  fs::write(marker, "received").unwrap();
+  std::process::exit(23);
+}
+
+#[tokio::test]
+async fn template_passes_yaml_to_child_stdin_without_modifying_source_or_logging_values() {
+  let (_mode, url, task) = start_server().await;
+  let directory = TempDir::new().unwrap();
+  let template = directory.path().join("manifest.yaml");
+  let marker = directory.path().join("child.started");
+  let source =
+    "kind: Secret\nstringData:\n  password: #{{API_TOKEN}}#\n  literal: '${API_TOKEN}'\n";
+  fs::write(&template, source).unwrap();
+  let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_onekey"))
+    .args(["--server", &url, "--data-dir"])
+    .arg(directory.path())
+    .args(["run", "payment-service", "--template"])
+    .arg(&template)
+    .arg("--")
+    .arg(std::env::current_exe().unwrap())
+    .args([
+      "--exact",
+      "commands::run::template_child_receiver",
+      "--nocapture",
+    ])
+    .env("ONEKEY_TOKEN", TOKEN)
+    .env("ONEKEY_TEST_TEMPLATE_CHILD", &marker)
+    .output()
+    .await
+    .unwrap();
+  assert_eq!(
+    output.status.code(),
+    Some(23),
+    "{}",
+    String::from_utf8_lossy(&output.stderr)
+  );
+  assert_eq!(fs::read_to_string(marker).unwrap(), "received");
+  assert_eq!(fs::read_to_string(template).unwrap(), source);
+  assert!(!String::from_utf8_lossy(&output.stdout).contains(SECRET));
+  assert!(!String::from_utf8_lossy(&output.stderr).contains(SECRET));
+  task.abort();
+}
+
+#[tokio::test]
+async fn missing_or_invalid_template_does_not_start_the_child() {
+  let (_mode, url, task) = start_server().await;
+  let directory = TempDir::new().unwrap();
+  let template = directory.path().join("manifest.yaml");
+  for source in [
+    "password: #{{MISSING}}#",
+    "password: [",
+    "password: !custom literal-secret-marker",
+  ] {
+    fs::write(&template, source).unwrap();
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_onekey"))
+      .args(["--server", &url, "--data-dir"])
+      .arg(directory.path())
+      .args(["run", "payment-service", "--template"])
+      .arg(&template)
+      .args(["--", env!("CARGO_BIN_EXE_onekey"), "--version"])
+      .env("ONEKEY_TOKEN", TOKEN)
+      .output()
+      .await
+      .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty(), "child was started");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains(SECRET));
+    assert!(!stderr.contains("literal-secret-marker"));
+  }
+  task.abort();
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn interactive_child_reads_from_the_terminal_and_returns_its_exit_status() {

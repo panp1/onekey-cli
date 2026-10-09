@@ -205,7 +205,8 @@ pub enum Command {
   /// encrypted local cache. If the server is unavailable, the last cache for
   /// the same server, project, and credential is used only within the
   /// server-issued TTL. Everything after
-  /// `--` is the command to run.
+  /// `--` is the command to run. --template <YAML> also renders #{{NAME}}#
+  /// placeholders into the child's stdin without modifying the source file.
   #[command(after_help = run::HELP)]
   Run(RunArgs),
   /// Call an HTTP API with a secret as the Authorization header (wraps curl).
