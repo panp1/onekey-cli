@@ -215,7 +215,7 @@ impl OneKeyMcp {
   }
   #[tool(
     name = "onekey_get_browser_fill_result",
-    description = "Get pending, processing, complete, expired or unknown status for a browser fill requestId. Complete outcome is filled/refused/unavailable/canceled. No page content or credentials returned.",
+    description = "Get pending, processing, complete, expired or unknown status for a browser fill requestId. Complete outcome is filled/refused/unavailable/canceled; a refusal carries a reason code (notAuthorized, notApproved, noPermission, noTab, multipleTabs, noFields, bridge, tabChanged, authorizationChanged, expired, fillFailed, other). No page content or credentials returned.",
     annotations(
       read_only_hint = true,
       destructive_hint = false,
@@ -263,7 +263,7 @@ impl OneKeyMcp {
   }
   #[tool(
     name = "onekey_fill_browser_connection",
-    description = "Fill an authorized connection in one existing Chrome/Edge login tab through the OneKey extension. Does not submit. Supports username/password steps. Returns only filled/refused/unavailable; never credentials. Requires user-enabled AI filling and website permissions in the extension. Waits up to 60 seconds.",
+    description = "Fill an authorized connection in one existing Chrome/Edge login tab through the OneKey extension. Does not submit. Supports username/password steps. Returns only filled/refused/unavailable plus a refusal reason code; never credentials. Requires user-enabled AI filling and website permissions in the extension. Waits up to 60 seconds.",
     annotations(
       read_only_hint = false,
       destructive_hint = false,
@@ -275,7 +275,7 @@ impl OneKeyMcp {
     Parameters(request): Parameters<BrowserFillRequest>,
   ) -> Result<Json<serde_json::Value>, String> {
     let outcome = super::browser::request_fill(&self.server, &request.name).await.map_err(|_| "Fill refused or timed out. Authorize the connection and AI filling in the extension; keep one matching Chrome/Edge login tab open.".to_owned())?;
-    Ok(Json(serde_json::json!({"outcome":outcome})))
+    Ok(Json(outcome))
   }
   #[tool(
     name = "onekey_list_projects",

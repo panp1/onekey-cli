@@ -21,6 +21,19 @@
         page reads secret names only.
       </p>
     </header>
+    <section class="site-access" aria-labelledby="siteAccessTitle">
+      <h2 id="siteAccessTitle" data-i18n="siteAccess">Browser site access</h2>
+      <label class="check">
+        <input id="allHttps" type="checkbox" disabled />
+        <span data-i18n="allHttps">Allow access to all HTTPS websites</span>
+      </label>
+      <p data-i18n="allHttpsHint">
+        The browser will ask for permission to read and change data on all HTTPS
+        websites. Credentials still require authorization for each website and
+        account. HTTP access remains limited to loopback testing.
+      </p>
+      <p id="accessStatus" role="status" aria-live="polite"></p>
+    </section>
     <main>
       <aside>
         <h2 data-i18n="authorizedAccounts">Authorized accounts</h2>

@@ -53,6 +53,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - run: node --test browser-extension/test.mjs
+      - run: node --test browser-extension/test.mjs browser-extension/host-permissions.test.mjs
       - run: node browser-extension/package.mjs
       - run: sh -n browser-extension/install.sh

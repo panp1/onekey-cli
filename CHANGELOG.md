@@ -4,6 +4,9 @@ All notable changes to the OneKey CLI are documented in this file.
 
 ## Unreleased
 
+- A refused AI fill now reports a fixed reason code (for example `noTab`, `multipleTabs`, `notApproved`, `noPermission`) through MCP; no page text or credentials.
+- Browser extension 0.2.2 adds an opt-in, revocable all-HTTPS site access switch in English and Chinese. Browser access remains separate from website/account and AI filling authorization.
+
 - Browser extension 0.2.1 supports English and Simplified Chinese, defaults to English, and saves the language selected in the popup or configuration page.
 
 ## 0.7.4 - 2026-10-08

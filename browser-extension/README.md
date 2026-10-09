@@ -8,7 +8,7 @@ initial native host registration and CLI authentication use the terminal.
 
 ```sh
 cargo build --locked --release
-node --test browser-extension/test.mjs
+node --test browser-extension/test.mjs browser-extension/host-permissions.test.mjs
 node browser-extension/package.mjs
 ```
 
@@ -24,7 +24,7 @@ Use the built CLI (`target/release/onekey`) until it has replaced your installed
 CLI. Prefer a saved PAT scoped to the website project and necessary secrets;
 configure it with `onekey config` outside the AI conversation.
 
-`onekey-browser_0.2.1.zip` includes the extension and `install.sh` / `install.ps1`.
+`onekey-browser_0.2.2.zip` includes the extension and `install.sh` / `install.ps1`.
 Install helpers accept binary path, browser and extension ID. For Windows:
 
 ```powershell
@@ -74,6 +74,25 @@ be inferred from DOM and are entrusted to the explicitly authorized website.
 This covers ordinary input-based reactive pages; shadow DOM, closed components,
 passkeys, CAPTCHA and MFA are not automated.
 
+## Browser site access
+
+In **Manage websites and accounts**, enable **Allow access to all HTTPS websites**
+under **Browser site access** to request a single browser grant for all HTTPS
+websites. It defaults to off. Chrome/Edge displays its own permission prompt;
+denying it keeps per-site access. The switch reflects the browser's actual grant,
+including revocation through browser settings.
+
+This grant survives saving, disabling or deleting individual accounts. Credentials
+still require a configured, enabled website/account binding, and AI filling still
+requires separate approval. HTTP remains limited to loopback testing. Turn the
+switch off to revoke the global grant; if the browser also removes a site's access,
+save that account's authorization again to request its specific site permission.
+
+在「管理网站与账号授权 → 浏览器网站访问权限」勾选「允许访问所有 HTTPS 网站」，
+由 Chrome/Edge 弹窗授权，默认关闭。全站访问权限不会因删除账号而自动撤销；
+填充仍按网站和账号授权，AI 填充仍需单独批准。取消勾选可撤销全站权限，
+若某账号的网站权限也被浏览器移除，请重新保存该账号授权。HTTP 仍仅限回环测试。
+
 ## AI/MCP integration
 
 Enable **允许 AI…** per connection and select Chrome or Edge. Save the same scoped
@@ -84,6 +103,22 @@ Configure your AI client's MCP process as:
 ```json
 { "command": "onekey", "args": ["mcp", "serve"] }
 ```
+
+For Codex, register OneKey in your personal global configuration:
+
+```bash
+codex mcp add onekey -- onekey mcp serve
+codex mcp get onekey --json
+```
+
+The configuration is saved in `~/.codex/config.toml` and shared across projects.
+If the desktop app cannot find `onekey` on its PATH, use the executable's absolute
+path after `--`, for example `~/.local/bin/onekey` on macOS/Linux. Restart Codex
+to load the new tools. See the [official MCP setup](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+
+Codex 个人全局配置使用上面的两条命令，保存到 `~/.codex/config.toml`，各项目共用。
+桌面应用找不到 `onekey` 时，把 `--` 后的程序名换成可执行文件的绝对路径；
+配置完成后重启 Codex。无需在 MCP 配置中写入令牌，沿用 CLI 已保存的 PAT 或 Runner token。
 
 For a separate profile, include `--data-dir` and `--server` before `mcp serve`.
 The actual Chrome/Edge extension executes filling in the existing browser tab.
@@ -132,8 +167,8 @@ values, DOM dumps or screenshots that reveal usernames/passwords after filling.
 
 `package.mjs` builds reproducible ZIPs with SHA-256 checksums:
 
-- `onekey-browser_0.2.1.zip`: local install/upgrade bundle.
-- `onekey-browser-store_0.2.1.zip`: runtime-only package for Chrome Web Store and Edge Add-ons.
+- `onekey-browser_0.2.2.zip`: local install/upgrade bundle.
+- `onekey-browser-store_0.2.2.zip`: runtime-only package for Chrome Web Store and Edge Add-ons.
 
 Both repositories' release workflows test/build these packages and add them to
 the GitHub release assets when a release tag is pushed. No release is published

@@ -30,6 +30,7 @@ main {
   margin: 28px 0;
 }
 aside,
+.site-access,
 form {
   background: white;
   padding: 22px;

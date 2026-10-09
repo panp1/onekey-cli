@@ -24,21 +24,29 @@ const policyOf = (binding) => ({
   submitOrigins: binding.submitOrigins || [],
   allowJs: binding.allowJs || false,
 });
+// A fixed refusal code travels back to MCP; the message itself never leaves the extension.
+const refuse = (reason, message) =>
+  Object.assign(new Error(message), { reason });
 async function fillTab(binding, tab, requestId) {
   if (!permitted(binding, tab.origin))
-    throw new Error("Website is not authorized.");
+    throw refuse("notAuthorized", "Website is not authorized.");
   const policy = policyOf(binding);
-  const preflight = await chrome.scripting.executeScript({
-    target: { tabId: tab.id, frameIds: [0] },
-    func: fillLogin,
-    args: [tab.origin, null, policy],
-  });
+  const preflight = await chrome.scripting
+    .executeScript({
+      target: { tabId: tab.id, frameIds: [0] },
+      func: fillLogin,
+      args: [tab.origin, null, policy],
+    })
+    .catch((error) => {
+      throw refuse("noFields", error.message);
+    });
   if (
     preflight.length !== 1 ||
     preflight[0].frameId !== 0 ||
     !preflight[0].result?.ready
   )
-    throw new Error(
+    throw refuse(
+      "noFields",
       "No supported login fields. Credentials were not requested.",
     );
   const fields = preflight[0].result.fields || "both";
@@ -48,6 +56,8 @@ async function fillTab(binding, tab, requestId) {
     origin: tab.origin,
     fields,
     ...(requestId ? { requestId } : {}),
+  }).catch((error) => {
+    throw refuse("bridge", error.message);
   });
   try {
     if (
@@ -63,7 +73,7 @@ async function fillTab(binding, tab, requestId) {
       current.id !== tab.id ||
       (current.origin || safeOrigin(current.url)) !== tab.origin
     )
-      throw new Error("Tab changed.");
+      throw refuse("tabChanged", "Tab changed.");
     const fresh = (await native({ action: "list" })).bindings.find(
       (item) => item.name === binding.name,
     );
@@ -73,7 +83,7 @@ async function fillTab(binding, tab, requestId) {
       (requestId && !fresh.allowAi) ||
       JSON.stringify(fresh) !== JSON.stringify(binding)
     )
-      throw new Error("Authorization changed.");
+      throw refuse("authorizationChanged", "Authorization changed.");
     if (requestId) {
       const checked = await native({
         action: "check",
@@ -82,7 +92,7 @@ async function fillTab(binding, tab, requestId) {
         requestId,
       });
       if (Date.now() >= checked.expiresAt * 1000)
-        throw new Error("AI request expired.");
+        throw refuse("expired", "AI request expired.");
     }
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id, frameIds: [0] },
@@ -94,7 +104,7 @@ async function fillTab(binding, tab, requestId) {
       results[0].frameId !== 0 ||
       !results[0].result?.filled
     )
-      throw new Error("Fill refused.");
+      throw refuse("fillFailed", "Fill refused.");
     return { ok: true, filled: true, source: response.source };
   } finally {
     if (response.credentials) {
@@ -145,6 +155,7 @@ export async function pollAi() {
     });
     for (const request of requests) {
       let outcome = "refused";
+      let reason;
       try {
         const binding = (await native({ action: "list" })).bindings.find(
           (item) =>
@@ -156,29 +167,39 @@ export async function pollAi() {
           const key = approvalKey(binding.name);
           const approved = (await chrome.storage.local.get(key))[key];
           if (approved !== approvalOf(binding))
-            throw new Error("AI filling was not approved in the options page.");
+            throw refuse(
+              "notApproved",
+              "AI filling was not approved in the options page.",
+            );
           const patterns = originsOf(binding).map((origin) => `${origin}/*`);
           if (!(await chrome.permissions.contains({ origins: patterns })))
-            throw new Error("Browser permission revoked.");
+            throw refuse("noPermission", "Browser permission revoked.");
           const tabs = await chrome.tabs.query({ url: patterns });
           const matches = tabs.filter(
             (tab) => tab.id && permitted(binding, safeOrigin(tab.url)),
           );
           if (matches.length !== 1)
-            throw new Error("Leave exactly one authorized login tab open.");
+            throw refuse(
+              matches.length ? "multipleTabs" : "noTab",
+              "Leave exactly one authorized login tab open.",
+            );
           await fillTab(
             binding,
             { id: matches[0].id, origin: safeOrigin(matches[0].url) },
             request.id,
           );
           outcome = "filled";
-        }
-      } catch {
+        } else reason = "notAuthorized";
+      } catch (error) {
         outcome = "refused";
+        reason = error.reason || "other";
       }
-      await native({ action: "complete", id: request.id, outcome }).catch(
-        () => {},
-      );
+      await native({
+        action: "complete",
+        id: request.id,
+        outcome,
+        ...(outcome === "refused" ? { reason } : {}),
+      }).catch(() => {});
     }
   } finally {
     polling = false;

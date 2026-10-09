@@ -4,6 +4,17 @@ export const messages = {
     pageTitle: "OneKey · Website authorization",
     appTitle: "OneKey Website Login",
     language: "Language",
+    siteAccess: "Browser site access",
+    allHttps: "Allow access to all HTTPS websites",
+    allHttpsHint:
+      "The browser will ask for permission to read and change data on all HTTPS websites. Credentials still require authorization for each website and account. HTTP access remains limited to loopback testing.",
+    allHttpsGranted:
+      "All HTTPS website access is enabled. Website and account filling authorization is still required.",
+    allHttpsRevoked:
+      "All HTTPS website access is revoked. If an account needs website permission, save its authorization again.",
+    accessDenied: "Browser permission change was not granted.",
+    accessFailed:
+      "Could not update browser site access. Reopen this page and try again.",
     intro:
       "Choose existing secrets and authorize each website and account. This page reads secret names only.",
     authorizedAccounts: "Authorized accounts",
@@ -111,6 +122,15 @@ export const messages = {
     pageTitle: "OneKey · 网站授权",
     appTitle: "OneKey 网站登录",
     language: "语言",
+    siteAccess: "浏览器网站访问权限",
+    allHttps: "允许访问所有 HTTPS 网站",
+    allHttpsHint:
+      "浏览器会请求读取和修改所有 HTTPS 网站数据的权限。填充凭据仍须按网站和账号授权。HTTP 访问仍仅限本机回环测试。",
+    allHttpsGranted: "已允许访问所有 HTTPS 网站。填充仍须按网站和账号授权。",
+    allHttpsRevoked:
+      "已撤销所有 HTTPS 网站访问权限。若账号缺少网站权限，请重新保存该账号的授权。",
+    accessDenied: "浏览器未批准权限变更。",
+    accessFailed: "无法更新浏览器网站访问权限，请重新打开页面后重试。",
     intro: "选择现有密钥，按网站和账号授权。此页面只读取密钥名称。",
     authorizedAccounts: "已授权的账号",
     accountsLabel: "网站账号",

@@ -401,6 +401,44 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
     )
     .await,
   );
+  // A refusal records only a fixed reason code.
+  let refused = browser::enqueue_fill(&server, "work").unwrap();
+  let refused_id = refused["requestId"].as_str().unwrap();
+  response(
+    &native(
+      &dir,
+      &url,
+      &caller,
+      json!({"action":"poll","browser":"chrome"}),
+    )
+    .await,
+  );
+  let completed = response(
+    &native(
+      &dir,
+      &url,
+      &caller,
+      json!({"action":"complete","id":refused_id,"outcome":"refused","reason":"multipleTabs"}),
+    )
+    .await,
+  );
+  assert_eq!(completed["ok"], true);
+  let result = browser::fill_result(&server, refused_id).unwrap();
+  assert_eq!(result["outcome"], "refused");
+  assert_eq!(result["reason"], "multipleTabs");
+  // Free text is not a reason: the host rejects the frame and records nothing.
+  let free_text = native(
+    &dir,
+    &url,
+    &caller,
+    json!({"action":"complete","id":id,"outcome":"refused","reason":"page said: hello"}),
+  )
+  .await;
+  assert!(!free_text.status.success() || response(&free_text)["ok"] == false);
+  assert_ne!(
+    browser::fill_result(&server, id).unwrap()["status"],
+    "complete"
+  );
   browser::cancel_fill(&server, id).unwrap();
   assert_eq!(
     browser::fill_result(&server, id).unwrap()["outcome"],

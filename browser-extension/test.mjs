@@ -412,12 +412,49 @@ test("AI refuses multiple matching tabs before retrieving credentials", async ()
     if (request.action === "list") result.bindings[0].allowAi = true;
     return result;
   };
+  const listed = await chrome.runtime.sendNativeMessage("com.onekey.browser", {
+    action: "list",
+  });
+  await chrome.storage.local.set({
+    [approvalKey("work")]: approvalOf(listed.bindings[0]),
+  });
   await pollAi();
   assert(!sent.some((request) => request.action === "fill"));
-  assert.equal(
-    sent.find((request) => request.action === "complete").outcome,
-    "refused",
-  );
+  const completion = sent.find((request) => request.action === "complete");
+  assert.equal(completion.outcome, "refused");
+  assert.equal(completion.reason, "multipleTabs");
+});
+test("all-site browser access does not allow AI filling an unbound origin", async () => {
+  const { pollAi } = await import("./worker.js");
+  const original = chrome.runtime.sendNativeMessage;
+  chrome.permissions = { contains: async () => true };
+  chrome.tabs.query = async () => [
+    { id: 7, url: "https://unbound.example.com/login" },
+  ];
+  chrome.runtime.sendNativeMessage = async (host, request) => {
+    if (request.action === "poll")
+      return { ok: true, requests: [{ id: "request", name: "work" }] };
+    if (request.action === "complete") {
+      sent.push(request);
+      return { ok: true };
+    }
+    const result = await original(host, request);
+    if (request.action === "list") result.bindings[0].allowAi = true;
+    return result;
+  };
+  const binding = (
+    await chrome.runtime.sendNativeMessage("com.onekey.browser", {
+      action: "list",
+    })
+  ).bindings[0];
+  await chrome.storage.local.set({
+    [approvalKey("work")]: approvalOf(binding),
+  });
+  sent.length = 0;
+  await pollAi();
+  assert.equal(sent.at(-1).outcome, "refused");
+  assert(!sent.some((request) => request.action === "fill"));
+  assert.equal(injected.length, 0);
 });
 test("AI refuses revoked browser host permissions", async () => {
   const { pollAi } = await import("./worker.js");
@@ -464,6 +501,7 @@ test("AI refuses bindings changed outside the options page", async () => {
   // No approval recorded: a hand-edited allowAi is refused.
   await pollAi();
   assert.equal(sent.at(-1).outcome, "refused");
+  assert.equal(sent.at(-1).reason, "notApproved");
   // Approved, then the bound secret is swapped behind the options page's back.
   const listed = await chrome.runtime.sendNativeMessage("com.onekey.browser", {
     action: "list",

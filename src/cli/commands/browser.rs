@@ -189,6 +189,8 @@ enum Request {
   Complete {
     id: String,
     outcome: Outcome,
+    #[serde(default)]
+    reason: Option<RefusalReason>,
   },
   Fill {
     name: String,
@@ -618,7 +620,11 @@ async fn handle(
       }
       Ok(serde_json::json!({"ok":true,"expiresAt":queued.expires_at}))
     }
-    Request::Complete { id, outcome } => complete(server, &id, outcome),
+    Request::Complete {
+      id,
+      outcome,
+      reason,
+    } => complete(server, &id, outcome, reason),
     Request::Fill {
       name,
       origin,
@@ -721,6 +727,23 @@ enum Fields {
   Both,
   Username,
   Password,
+}
+/// Why the extension refused an AI fill. A closed set, so no page or secret text can pass through.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub enum RefusalReason {
+  NotAuthorized,
+  NotApproved,
+  NoPermission,
+  NoTab,
+  MultipleTabs,
+  NoFields,
+  Bridge,
+  TabChanged,
+  AuthorizationChanged,
+  Expired,
+  FillFailed,
+  Other,
 }
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
@@ -915,6 +938,8 @@ struct Recorded {
   credential_hash: String,
   expires_at: i64,
   outcome: Outcome,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  reason: Option<RefusalReason>,
 }
 const RESULT_RETENTION_SECONDS: i64 = 15 * 60;
 pub fn enqueue_fill(
@@ -983,7 +1008,9 @@ pub fn fill_result(
     if record.server_url != server.url || record.credential_hash != hash {
       bail!("request belongs to another identity");
     }
-    return Ok(serde_json::json!({"requestId":id,"status":"complete","outcome":record.outcome}));
+    return Ok(
+      serde_json::json!({"requestId":id,"status":"complete","outcome":record.outcome,"reason":record.reason}),
+    );
   }
   for suffix in ["pending", "claimed"] {
     if queue_path(server, id, suffix)?.exists() {
@@ -1015,6 +1042,7 @@ pub fn cancel_fill(
         credential_hash: hash,
         expires_at: queued.expires_at,
         outcome: Outcome::Canceled,
+        reason: None,
       };
       private_write(
         &queue_path(server, id, "result")?,
@@ -1029,7 +1057,7 @@ pub fn cancel_fill(
 pub async fn request_fill(
   server: &ResolvedServer,
   name: &str,
-) -> Result<Outcome> {
+) -> Result<serde_json::Value> {
   let request = enqueue_fill(server, name)?;
   let id = request["requestId"].as_str().unwrap().to_owned();
   struct Cleanup(Vec<PathBuf>);
@@ -1049,7 +1077,7 @@ pub async fn request_fill(
   for _ in 0..120 {
     let result = fill_result(server, &id)?;
     if result["status"] == "complete" {
-      return Ok(serde_json::from_value(result["outcome"].clone())?);
+      return Ok(serde_json::json!({"outcome":result["outcome"],"reason":result["reason"]}));
     }
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
   }
@@ -1124,6 +1152,7 @@ fn complete(
   server: &ResolvedServer,
   id: &str,
   outcome: Outcome,
+  reason: Option<RefusalReason>,
 ) -> Result<serde_json::Value> {
   let _lock = settings_lock(server)?;
   let queued = read_queued(server, id, "claimed")?;
@@ -1140,6 +1169,7 @@ fn complete(
       credential_hash: queued.credential_hash,
       expires_at: queued.expires_at,
       outcome,
+      reason,
     })?,
   )?;
   fs::remove_file(queue_path(server, id, "claimed")?)?;

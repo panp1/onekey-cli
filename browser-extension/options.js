@@ -1,11 +1,69 @@
 import { initI18n, t, setText, showError, UIError } from "./i18n.js";
 import { safeOrigin, originsOf } from "./policy.js";
+import {
+  hasAllHttpsAccess,
+  setAllHttpsAccess,
+  removeUnusedHostPermissions,
+} from "./host-permissions.js";
 const $ = (id) => document.getElementById(id);
 const status = $("status");
 let bindings = [],
   projects = [];
 let editing = null;
 await initI18n();
+const allHttps = $("allHttps");
+const accessStatus = $("accessStatus");
+let changingAccess = false;
+async function refreshAccess() {
+  allHttps.checked = await hasAllHttpsAccess();
+}
+allHttps.addEventListener("change", async () => {
+  const enabled = allHttps.checked;
+  changingAccess = true;
+  allHttps.disabled = true;
+  let readable = true;
+  try {
+    const changed = await setAllHttpsAccess(enabled);
+    await refreshAccess();
+    setText(
+      accessStatus,
+      changed
+        ? allHttps.checked
+          ? "allHttpsGranted"
+          : "allHttpsRevoked"
+        : "accessDenied",
+    );
+  } catch {
+    setText(accessStatus, "accessFailed");
+    try {
+      await refreshAccess();
+    } catch {
+      readable = false;
+    }
+  } finally {
+    changingAccess = false;
+    allHttps.disabled = !readable;
+  }
+});
+const accessChanged = () => {
+  if (!changingAccess)
+    refreshAccess()
+      .then(() =>
+        setText(
+          accessStatus,
+          allHttps.checked ? "allHttpsGranted" : "allHttpsRevoked",
+        ),
+      )
+      .catch(() => setText(accessStatus, "accessFailed"));
+};
+chrome.permissions.onAdded.addListener(accessChanged);
+chrome.permissions.onRemoved.addListener(accessChanged);
+try {
+  await refreshAccess();
+  allHttps.disabled = false;
+} catch {
+  setText(accessStatus, "accessFailed");
+}
 async function send(message) {
   const response = await chrome.runtime.sendMessage(message);
   if (!response?.ok)
@@ -182,14 +240,7 @@ $("editor").addEventListener("submit", async (event) => {
   }
 });
 async function removeUnusedPermissions() {
-  const permissions = await chrome.permissions.getAll();
-  const used = new Set(
-    bindings
-      .filter((b) => b.enabled)
-      .flatMap((b) => originsOf(b).map((o) => `${o}/*`)),
-  );
-  const unused = (permissions.origins || []).filter((o) => !used.has(o));
-  if (unused.length) await chrome.permissions.remove({ origins: unused });
+  await removeUnusedHostPermissions(bindings);
 }
 $("remove").addEventListener("click", async () => {
   if (!editing || !window.confirm(t("confirmRemove", { name: editing.name })))

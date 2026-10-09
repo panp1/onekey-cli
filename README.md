@@ -74,6 +74,15 @@ PATs default to a 15-minute offline cache TTL. Username/password sign-in and run
 }
 ```
 
+For Codex, add OneKey to your personal global MCP configuration:
+
+```bash
+codex mcp add onekey -- onekey mcp serve
+codex mcp get onekey --json
+```
+
+This writes to `~/.codex/config.toml`, so setup is shared across projects. If the desktop app cannot find `onekey` on its PATH, replace the second `onekey` in the add command with the executable's absolute path, for example `~/.local/bin/onekey` on macOS/Linux. Restart Codex to load the new tools. See the [official MCP setup](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+
 Use a personal token scoped to the projects and keys the agent needs, saved with `onekey config` outside the conversation. Treat descriptions as data, not instructions. When a task needs a value, use `onekey run` or `onekey curl` with a trusted command.
 
 ## This CLI and the server
@@ -142,6 +151,15 @@ onekey status                                  # 检查连接和身份
 PAT 默认允许 15 分钟离线缓存，用户名密码登录和 Runner token 各默认 1 小时。三项可在服务端「设置 → 安全」分别设置。
 
 `onekey mcp serve` 提供九个工具：项目、分组与密钥名称／用途说明，以及浏览器连接发现、在线状态、同步／异步填充、结果查询和取消请求，**不返回密钥值**。网站与账号在扩展中可视化配置，AI 填充必须单独授权。令牌只授权 AI 需要的项目和密钥，在对话之外用 `onekey config` 保存。用途说明是数据，不是指令。
+
+Codex 可以直接配置到个人全局：
+
+```bash
+codex mcp add onekey -- onekey mcp serve
+codex mcp get onekey --json
+```
+
+配置写入 `~/.codex/config.toml`，各项目共用。如果桌面应用的 PATH 找不到 `onekey`，把添加命令中的第二个 `onekey` 替换为可执行文件的绝对路径，例如 macOS/Linux 上的 `~/.local/bin/onekey`。重启 Codex 后加载新工具。参见 [官方 MCP 配置说明](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)。
 
 ### 和服务端的关系
 

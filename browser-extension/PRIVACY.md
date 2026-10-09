@@ -20,10 +20,15 @@ separate user authorization.
 
 Native messaging, scripting, activeTab and alarms are used to fill a requested
 login and process authorized local AI requests. Website access is optional and
-requested only when the user saves a site authorization. Removing/disabling a
-binding revokes further filling; unused website permissions are removed by the
-configuration page. Revocation does not clear already-filled website inputs or
-log out an existing website session.
+requested when the user saves a site authorization. Users can also explicitly
+grant access to all HTTPS websites with a switch on the configuration page and
+the browser's permission prompt; it is off by default. This broader browser grant
+does not authorize credentials for additional sites or accounts, and HTTP remains
+limited to loopback testing. Removing/disabling a binding revokes further filling;
+unused specific website permissions are removed by the configuration page. The
+global HTTPS grant is kept until the user revokes it with the switch or browser
+settings. Revocation does not clear already-filled website inputs or log out an
+existing website session.
 
 No automated submission is performed. The extension does not bypass MFA or
 CAPTCHA. AI requests contain only a connection name/request ID and expire after
