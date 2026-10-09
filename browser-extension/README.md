@@ -61,7 +61,8 @@ Unused browser permissions are removed when saving/deleting in this page.
 
 The extension detects one visible username/password pair, or one visible field
 for username-first/password-first steps. A username-only step needs an input
-marked `autocomplete="username"` or a configured username selector. Click fill again after navigating to the
+marked `autocomplete="username"` or `"webauthn"` (for example `email webauthn`), or a
+configured username selector. Click fill again after navigating to the
 next step. It never clicks Next or Submit. Custom CSS selectors resolve ambiguity.
 Same-origin POST forms work by default. Additional login origins authorize pages
 where credentials may be inserted; additional submit origins authorize HTML form
@@ -155,6 +156,13 @@ The actual Chrome/Edge extension executes filling in the existing browser tab.
 Your browser automation tool can navigate/open that login tab first, call MCP,
 then continue after a successful fill; the bridge never returns password values.
 This does not connect to Codex's separate in-app browser or isolated browser profiles.
+The extension must be loaded in the same browser and profile your automation tool
+drives (Claude in Chrome, for example, may be installed in Edge), and MCP calls
+must pass that `browser`. `onekey_get_browser_status` reports each browser's last
+contact and extension version.
+
+Test from a terminal without MCP: `onekey browser fill <name> --browser edge`
+prints only the outcome and exits non-zero unless the fill succeeded.
 
 **What this protects, and what it does not.** AI filling is meant for automated
 testing with test accounts. Passwords never appear in MCP results, the AI
@@ -170,21 +178,23 @@ connections enabled for AI before this check must be saved once more.
 
 Available tools:
 
-| Tool                              | Purpose                                             |
-| --------------------------------- | --------------------------------------------------- |
-| `onekey_list_projects`            | Scoped project IDs/names                            |
-| `onekey_list_groups`              | Scoped group metadata                               |
-| `onekey_list_secret_names`        | Names, descriptions, versions; never values         |
-| `onekey_list_browser_connections` | Enabled, explicitly AI-authorized connections       |
-| `onekey_get_browser_status`       | Recent extension heartbeat and requirements         |
-| `onekey_request_browser_fill`     | Queue by `name` and `browser`, return requestId     |
-| `onekey_get_browser_fill_result`  | Query by `request_id`; status/outcome only          |
-| `onekey_cancel_browser_fill`      | Cancel by `request_id`; cannot undo prior insertion |
-| `onekey_fill_browser_connection`  | Convenience blocking fill, up to 60 seconds         |
+| Tool                              | Purpose                                               |
+| --------------------------------- | ----------------------------------------------------- |
+| `onekey_list_projects`            | Scoped project IDs/names                              |
+| `onekey_list_groups`              | Scoped group metadata                                 |
+| `onekey_list_secret_names`        | Names, descriptions, versions; never values           |
+| `onekey_list_browser_connections` | Enabled, explicitly AI-authorized connections         |
+| `onekey_get_browser_status`       | Per-browser last contact, extension version, outdated |
+| `onekey_request_browser_fill`     | Queue by `name` and `browser`, return requestId       |
+| `onekey_get_browser_fill_result`  | Query by `request_id`; status/outcome only            |
+| `onekey_cancel_browser_fill`      | Cancel by `request_id`; cannot undo prior insertion   |
+| `onekey_fill_browser_connection`  | Convenience blocking fill, up to 60 seconds           |
 
 Use the asynchronous request/result pair by default. Poll no faster than once
-per second. MV3 alarms poll every 30 seconds but browsers may delay them; requests
-expire after 75 seconds. Exactly one matching login tab must be open in the
+per second. The extension keeps a native port open and receives requests within
+about a second; a 30-second alarm reopens it and polls as a fallback. Requests
+expire after 75 seconds. A host refuses requests for a browser whose extension is
+older than the version it needs (reload the extension). Exactly one matching login tab must be open in the
 selected browser. Ambiguity, revoked permission, changed binding or token mismatch
 refuses filling. Request records contain no credential values. Existing encrypted
 cache and server authentication TTL are reused; offline reads never renew TTL.

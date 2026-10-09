@@ -188,7 +188,7 @@ fn page<T>(
 impl OneKeyMcp {
   #[tool(
     name = "onekey_get_browser_status",
-    description = "Check whether the OneKey browser extension polled recently, its request TTL and setup requirements. Returns no credentials.",
+    description = "Check, per browser (chrome, edge), whether the OneKey extension connected recently, its version and whether it is outdated, plus request TTL and setup requirements. Returns no credentials.",
     annotations(
       read_only_hint = true,
       destructive_hint = false,
@@ -213,7 +213,7 @@ impl OneKeyMcp {
     &self,
     Parameters(request): Parameters<BrowserFillRequest>,
   ) -> Result<Json<serde_json::Value>, String> {
-    super::browser::enqueue_fill(&self.server,&request.name,request.browser).map(Json).map_err(|_| "Request refused. Select chrome or edge, approve AI filling for this connection in that browser's extension and use the same saved PAT/runner token for MCP and native host.".into())
+    super::browser::enqueue_fill(&self.server,&request.name,request.browser).map(Json).map_err(|error| format!("Request refused: {error}. Select chrome or edge, approve AI filling for this connection in that browser's extension and use the same saved PAT/runner token for MCP and native host."))
   }
   #[tool(
     name = "onekey_get_browser_fill_result",
@@ -276,7 +276,7 @@ impl OneKeyMcp {
     &self,
     Parameters(request): Parameters<BrowserFillRequest>,
   ) -> Result<Json<serde_json::Value>, String> {
-    let outcome = super::browser::request_fill(&self.server, &request.name, request.browser).await.map_err(|_| "Fill refused or timed out. Authorize the connection and AI filling in the selected browser's extension; keep one matching login tab open in that browser.".to_owned())?;
+    let outcome = super::browser::request_fill(&self.server, &request.name, request.browser).await.map_err(|error| format!("Fill refused or timed out: {error}. Authorize the connection and AI filling in the selected browser's extension; keep one matching login tab open in that browser."))?;
     Ok(Json(outcome))
   }
   #[tool(

@@ -148,6 +148,61 @@ async function recordApproval(message) {
     await chrome.storage.local.set({ [key]: approvalOf(stored) });
   else await chrome.storage.local.remove(key);
 }
+const extensionVersion = () => chrome.runtime.getManifest?.().version;
+async function processRequest(request) {
+  let outcome = "refused";
+  let reason;
+  try {
+    const binding = (await native({ action: "list" })).bindings.find(
+      (item) =>
+        item.name === request.name && item.allowAi && item.enabled !== false,
+    );
+    if (binding) {
+      const key = approvalKey(binding.name);
+      const approved = (await chrome.storage.local.get(key))[key];
+      if (approved !== approvalOf(binding))
+        throw refuse(
+          "notApproved",
+          "AI filling was not approved in the options page.",
+        );
+      const patterns = originsOf(binding).map((origin) => `${origin}/*`);
+      if (!(await chrome.permissions.contains({ origins: patterns })))
+        throw refuse("noPermission", "Browser permission revoked.");
+      const tabs = await chrome.tabs.query({ url: patterns });
+      const matches = tabs.filter(
+        (tab) => tab.id && permitted(binding, safeOrigin(tab.url)),
+      );
+      if (matches.length !== 1)
+        throw refuse(
+          matches.length ? "multipleTabs" : "noTab",
+          "Leave exactly one authorized login tab open.",
+        );
+      await fillTab(
+        binding,
+        { id: matches[0].id, origin: safeOrigin(matches[0].url) },
+        request.id,
+      );
+      outcome = "filled";
+    } else reason = "notAuthorized";
+  } catch (error) {
+    outcome = "refused";
+    reason = error.reason || "other";
+  }
+  await native({
+    action: "complete",
+    id: request.id,
+    outcome,
+    ...(outcome === "refused" ? { reason } : {}),
+  }).catch(() => {});
+}
+// One request at a time: polled and pushed requests share this chain.
+let chain = Promise.resolve();
+const handleRequests = (requests) =>
+  (chain = chain
+    .then(async () => {
+      for (const request of requests) await processRequest(request);
+    })
+    .catch(() => {}));
 let polling = false;
 export async function pollAi() {
   if (polling) return;
@@ -156,58 +211,35 @@ export async function pollAi() {
     const { requests } = await native({
       action: "poll",
       browser: currentBrowser(),
+      version: extensionVersion(),
     });
-    for (const request of requests) {
-      let outcome = "refused";
-      let reason;
-      try {
-        const binding = (await native({ action: "list" })).bindings.find(
-          (item) =>
-            item.name === request.name &&
-            item.allowAi &&
-            item.enabled !== false,
-        );
-        if (binding) {
-          const key = approvalKey(binding.name);
-          const approved = (await chrome.storage.local.get(key))[key];
-          if (approved !== approvalOf(binding))
-            throw refuse(
-              "notApproved",
-              "AI filling was not approved in the options page.",
-            );
-          const patterns = originsOf(binding).map((origin) => `${origin}/*`);
-          if (!(await chrome.permissions.contains({ origins: patterns })))
-            throw refuse("noPermission", "Browser permission revoked.");
-          const tabs = await chrome.tabs.query({ url: patterns });
-          const matches = tabs.filter(
-            (tab) => tab.id && permitted(binding, safeOrigin(tab.url)),
-          );
-          if (matches.length !== 1)
-            throw refuse(
-              matches.length ? "multipleTabs" : "noTab",
-              "Leave exactly one authorized login tab open.",
-            );
-          await fillTab(
-            binding,
-            { id: matches[0].id, origin: safeOrigin(matches[0].url) },
-            request.id,
-          );
-          outcome = "filled";
-        } else reason = "notAuthorized";
-      } catch (error) {
-        outcome = "refused";
-        reason = error.reason || "other";
-      }
-      await native({
-        action: "complete",
-        id: request.id,
-        outcome,
-        ...(outcome === "refused" ? { reason } : {}),
-      }).catch(() => {});
-    }
+    await handleRequests(requests);
   } finally {
     polling = false;
   }
+}
+// Long-lived native port: the host pushes requests as soon as MCP queues them, and an
+// open port keeps this service worker alive. The 30-second alarm re-opens it and polls.
+let port = null;
+export function subscribe() {
+  if (port || !chrome.runtime.connectNative) return;
+  try {
+    port = chrome.runtime.connectNative(HOST);
+  } catch {
+    port = null;
+    return;
+  }
+  port.onMessage.addListener((message) => {
+    if (message?.requests?.length) handleRequests(message.requests);
+  });
+  port.onDisconnect.addListener(() => {
+    port = null;
+  });
+  port.postMessage({
+    action: "subscribe",
+    browser: currentBrowser(),
+    version: extensionVersion(),
+  });
 }
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (sender.id !== chrome.runtime.id) return false;
@@ -233,11 +265,15 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
 if (chrome.alarms) {
   const start = async () => {
     await chrome.alarms.create("onekey-ai", { periodInMinutes: 0.5 });
+    subscribe();
     await pollAi().catch(() => {});
   };
   chrome.runtime.onInstalled.addListener(start);
   chrome.runtime.onStartup.addListener(start);
   chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === "onekey-ai") pollAi().catch(() => {});
+    if (alarm.name !== "onekey-ai") return;
+    subscribe();
+    pollAi().catch(() => {});
   });
+  subscribe();
 }

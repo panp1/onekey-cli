@@ -42,7 +42,11 @@ export function fillLogin(expectedOrigin, credentials, policy = {}) {
       (password
         ? input.form === password.form
         : // A username-only step must be marked as one, or any email box would match.
-          policy.username || input.autocomplete === "username"),
+          policy.username ||
+          // "webauthn" marks a sign-in identifier field (passkey-capable login).
+          input.autocomplete
+            .split(/\s+/)
+            .some((token) => token === "username" || token === "webauthn")),
     true,
   );
   if (!password && !username)

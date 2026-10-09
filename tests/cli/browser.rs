@@ -330,7 +330,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
       &dir,
       &url,
       &caller,
-      json!({"action":"poll","browser":"edge"}),
+      json!({"action":"poll","browser":"edge","version":"0.2.5"}),
     )
     .await,
   );
@@ -340,7 +340,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
       &dir,
       &url,
       &caller,
-      json!({"action":"poll","browser":"chrome"}),
+      json!({"action":"poll","browser":"chrome","version":"0.2.5"}),
     )
     .await,
   );
@@ -369,6 +369,30 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
     browser::fill_result(&server, id).unwrap()["outcome"],
     "filled"
   );
+  // An extension that reports an old version (or none) is refused before queueing.
+  response(
+    &native(
+      &dir,
+      &url,
+      &caller,
+      json!({"action":"poll","browser":"edge","version":"0.2.4"}),
+    )
+    .await,
+  );
+  let outdated = browser::enqueue_fill(&server, "work", browser::BrowserKind::Edge).unwrap_err();
+  assert!(outdated.to_string().contains("older than"));
+  let status = browser::browser_status(&server).unwrap();
+  assert_eq!(status["browsers"]["edge"]["outdated"], true);
+  assert_eq!(status["browsers"]["chrome"]["extensionVersion"], "0.2.5");
+  response(
+    &native(
+      &dir,
+      &url,
+      &caller,
+      json!({"action":"poll","browser":"edge","version":"0.2.5"}),
+    )
+    .await,
+  );
   // One shared legacy Chrome binding can target either browser at call time.
   let edge_request = browser::enqueue_fill(&server, "work", browser::BrowserKind::Edge).unwrap();
   let chrome_request =
@@ -389,7 +413,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
       &dir,
       &url,
       &caller,
-      json!({"action":"poll","browser":"edge"}),
+      json!({"action":"poll","browser":"edge","version":"0.2.5"}),
     )
     .await,
   );
@@ -404,7 +428,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
       &dir,
       &url,
       &caller,
-      json!({"action":"poll","browser":"edge"}),
+      json!({"action":"poll","browser":"edge","version":"0.2.5"}),
     )
     .await,
   );
@@ -414,7 +438,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
       &dir,
       &url,
       &caller,
-      json!({"action":"poll","browser":"chrome"}),
+      json!({"action":"poll","browser":"chrome","version":"0.2.5"}),
     )
     .await,
   );
@@ -449,7 +473,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
       &dir,
       &url,
       &caller,
-      json!({"action":"poll","browser":"chrome"}),
+      json!({"action":"poll","browser":"chrome","version":"0.2.5"}),
     )
     .await,
   );
@@ -461,7 +485,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
       &dir,
       &url,
       &caller,
-      json!({"action":"poll","browser":"chrome"}),
+      json!({"action":"poll","browser":"chrome","version":"0.2.5"}),
     )
     .await,
   );
@@ -518,7 +542,7 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
       &dir,
       &url,
       &caller,
-      json!({"action":"poll","browser":"chrome"}),
+      json!({"action":"poll","browser":"chrome","version":"0.2.5"}),
     )
     .await,
   );
@@ -587,6 +611,112 @@ async fn ui_catalog_and_ai_queue_preserve_metadata_and_authorization_boundaries(
   assert_eq!(revoked["ok"], false);
   assert!(revoked.get("credentials").is_none());
   task.abort();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn subscribed_port_receives_requests_without_waiting_for_the_alarm() {
+  use onekey_cli::cli::commands::browser;
+  use tokio::io::AsyncReadExt;
+  let dir = TempDir::new().unwrap();
+  let stage = TempDir::new().unwrap();
+  let url = "https://one.example.com";
+  let server = local_config::resolve(Some(url), Some(dir.path())).unwrap();
+  session::save(
+    &server,
+    "dpa_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    None,
+  )
+  .unwrap();
+  let installed = command(
+    &dir,
+    url,
+    &[
+      "browser",
+      "install",
+      "--extension-id",
+      ID,
+      "--manifest-dir",
+      stage.path().to_str().unwrap(),
+    ],
+  )
+  .await;
+  assert!(installed.status.success());
+  let caller = format!("chrome-extension://{ID}/");
+  let binding = json!({"name":"work","serverUrl":"","origin":"https://accounts.example.com","project":"prj_web","usernameKey":"LOGIN_USER","passwordKey":"LOGIN_PASSWORD","usernameSelector":null,"passwordSelector":null,"loginOrigins":[],"submitOrigins":[],"allowJs":false,"allowAi":true,"enabled":true,"browser":null});
+  assert_eq!(
+    response(
+      &native(
+        &dir,
+        url,
+        &caller,
+        json!({"action":"save","binding":binding})
+      )
+      .await
+    )["ok"],
+    true
+  );
+
+  let mut child = Command::new(env!("CARGO_BIN_EXE_onekey"))
+    .args([
+      "--data-dir",
+      dir.path().to_str().unwrap(),
+      "--server",
+      url,
+      "browser",
+      "host",
+      &caller,
+    ])
+    .env_remove("ONEKEY_TOKEN")
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null())
+    .kill_on_drop(true)
+    .spawn()
+    .unwrap();
+  let mut stdin = child.stdin.take().unwrap();
+  stdin
+    .write_all(&frame(
+      json!({"action":"subscribe","browser":"edge","version":"0.2.5"}),
+    ))
+    .await
+    .unwrap();
+  let mut stdout = child.stdout.take().unwrap();
+  let mut read_frame = async || -> Value {
+    let mut header = [0; 4];
+    stdout.read_exact(&mut header).await.unwrap();
+    let mut body = vec![0; u32::from_ne_bytes(header) as usize];
+    stdout.read_exact(&mut body).await.unwrap();
+    serde_json::from_slice(&body).unwrap()
+  };
+  // The first keepalive frame confirms the subscription and records the heartbeat.
+  assert_eq!(read_frame().await["ok"], true);
+  assert_eq!(
+    browser::browser_status(&server).unwrap()["browsers"]["edge"]["recentlyConnected"],
+    true
+  );
+  let queued = browser::enqueue_fill(&server, "work", browser::BrowserKind::Edge).unwrap();
+  let pushed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    loop {
+      let frame = read_frame().await;
+      if let Some(request) = frame["requests"]
+        .as_array()
+        .and_then(|r| r.first())
+        .cloned()
+      {
+        return request;
+      }
+    }
+  })
+  .await
+  .expect("request pushed within 5 seconds");
+  assert_eq!(pushed["id"], queued["requestId"]);
+  assert_eq!(
+    browser::fill_result(&server, queued["requestId"].as_str().unwrap()).unwrap()["status"],
+    "processing"
+  );
+  drop(stdin);
+  let _ = child.kill().await;
 }
 
 #[cfg(unix)]

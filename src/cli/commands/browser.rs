@@ -18,7 +18,7 @@ use zeroize::Zeroize;
 
 const HOST_NAME: &str = "com.onekey.browser";
 const MAX_FRAME: usize = 64 * 1024;
-pub const HELP: &str = "Examples:\n  onekey browser add work --origin https://accounts.example.com --project website-logins --username-key LOGIN_USER --password-key LOGIN_PASSWORD\n  onekey browser list\n  onekey browser remove work\n  onekey browser install --browser chrome --extension-id <CHROME_EXTENSION_ID>\n  onekey browser install --browser edge --extension-id <EDGE_EXTENSION_ID>\n\nLoad browser-extension/dist in Chrome or Edge first. Host is an internal, framed stdio transport invoked by Chrome's registered launcher.\n";
+pub const HELP: &str = "Examples:\n  onekey browser fill work --browser edge\n  onekey browser add work --origin https://accounts.example.com --project website-logins --username-key LOGIN_USER --password-key LOGIN_PASSWORD\n  onekey browser list\n  onekey browser remove work\n  onekey browser install --browser chrome --extension-id <CHROME_EXTENSION_ID>\n  onekey browser install --browser edge --extension-id <EDGE_EXTENSION_ID>\n\nLoad browser-extension/dist in Chrome or Edge first. Host is an internal, framed stdio transport invoked by Chrome's registered launcher.\n";
 
 #[derive(Debug, Clone, Copy, ValueEnum, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -104,6 +104,15 @@ pub enum BrowserCommand {
     #[arg(long)]
     manifest_dir: Option<PathBuf>,
   },
+  /// Ask the extension in one browser to fill a connection in its open login tab; prints only the outcome.
+  #[command(after_help = HELP)]
+  Fill {
+    /// Connection name enabled for AI filling.
+    name: String,
+    /// Browser whose extension should fill.
+    #[arg(long, value_enum)]
+    browser: BrowserKind,
+  },
   /// Native messaging transport. Invoked by Chrome, not an interactive secret-reveal command.
   #[command(hide = true, after_help = HELP)]
   Host {
@@ -183,6 +192,11 @@ enum Request {
   },
   Poll {
     browser: Option<String>,
+    version: Option<String>,
+  },
+  Subscribe {
+    browser: Option<String>,
+    version: Option<String>,
   },
   Check {
     name: String,
@@ -277,6 +291,11 @@ pub async fn execute(
       extension_id,
       manifest_dir,
     } => install(server, browser, &extension_id, manifest_dir.as_deref())?,
+    BrowserCommand::Fill { name, browser } => {
+      let outcome = request_fill(server, &name, browser).await?;
+      println!("{outcome}");
+      return Ok(if outcome["outcome"] == "filled" { 0 } else { 1 });
+    }
     BrowserCommand::Host { caller } => {
       let settings = read_settings(server)?;
       let id = caller
@@ -549,6 +568,9 @@ async fn serve(
   output: &mut impl Write,
 ) -> Result<()> {
   while let Some(request) = read_frame(input)? {
+    if let Request::Subscribe { browser, version } = request {
+      return subscribe(server, browser.as_deref(), version.as_deref(), output).await;
+    }
     let result = handle(server, request).await;
     // Errors deliberately exclude upstream response bodies and secret/key values.
     let mut response = result.unwrap_or_else(|_| serde_json::json!({"ok":false,"error":"Request refused or credentials unavailable. Check the local binding, OneKey login, permissions and cache TTL."}));
@@ -596,7 +618,8 @@ async fn handle(
       write_settings(server, &settings)?;
       Ok(serde_json::json!({"ok":true}))
     }
-    Request::Poll { browser } => poll(server, browser.as_deref()),
+    Request::Poll { browser, version } => poll(server, browser.as_deref(), version.as_deref()),
+    Request::Subscribe { .. } => bail!("subscribe is handled by serve"),
     Request::Check {
       name,
       origin,
@@ -956,6 +979,14 @@ pub fn enqueue_fill(
     .into_iter()
     .find(|b| b.name == name && b.server_url == server.url && b.enabled && b.allow_ai)
     .context("Enable AI filling for this connection in the extension first")?;
+  if let Some(beat) = read_heartbeat(server, browser.name())
+    && extension_outdated(beat["version"].as_str())
+  {
+    bail!(
+      "The OneKey extension in {} is older than {MIN_EXTENSION_VERSION}; reload it from browser-extension/dist.",
+      browser.name()
+    );
+  }
   let credential_hash = requester_hash(server)?;
   let mut outstanding = 0;
   for entry in fs::read_dir(queue_dir(server)?)? {
@@ -1014,9 +1045,12 @@ pub fn fill_result(
     if record.server_url != server.url || record.credential_hash != hash {
       bail!("request belongs to another identity");
     }
-    return Ok(
-      serde_json::json!({"requestId":id,"status":"complete","outcome":record.outcome,"reason":record.reason}),
-    );
+    let mut result =
+      serde_json::json!({"requestId":id,"status":"complete","outcome":record.outcome});
+    if let Some(reason) = record.reason {
+      result["reason"] = serde_json::json!(reason);
+    }
+    return Ok(result);
   }
   for suffix in ["pending", "claimed"] {
     if queue_path(server, id, suffix)?.exists() {
@@ -1084,7 +1118,11 @@ pub async fn request_fill(
   for _ in 0..120 {
     let result = fill_result(server, &id)?;
     if result["status"] == "complete" {
-      return Ok(serde_json::json!({"outcome":result["outcome"],"reason":result["reason"]}));
+      let mut outcome = serde_json::json!({"outcome":result["outcome"]});
+      if let Some(reason) = result.get("reason") {
+        outcome["reason"] = reason.clone();
+      }
+      return Ok(outcome);
     }
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
   }
@@ -1093,29 +1131,103 @@ pub async fn request_fill(
   )
 }
 pub fn browser_status(server: &ResolvedServer) -> Result<serde_json::Value> {
-  let path = queue_dir(server)?.join(format!("heartbeat-{}.json", credential_hash(&server.url)));
-  let heartbeat = fs::read(path)
-    .ok()
-    .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
-  let last = heartbeat.and_then(|value| value["lastPollAt"].as_i64());
-  let connected = last.is_some_and(|time| {
-    let age = chrono::Utc::now().timestamp() - time;
-    (0..=90).contains(&age)
-  });
+  let now = chrono::Utc::now().timestamp();
+  let mut browsers = serde_json::Map::new();
+  let mut any_connected = false;
+  for browser in ["chrome", "edge"] {
+    let beat = read_heartbeat(server, browser);
+    let last = beat.as_ref().and_then(|value| value["lastPollAt"].as_i64());
+    let version = beat
+      .as_ref()
+      .and_then(|value| value["version"].as_str().map(str::to_owned));
+    let connected = last.is_some_and(|time| (0..=90).contains(&(now - time)));
+    any_connected |= connected;
+    browsers.insert(
+      browser.into(),
+      serde_json::json!({"recentlyConnected":connected,"lastPollAt":last,"extensionVersion":version,"outdated":last.is_some() && extension_outdated(version.as_deref())}),
+    );
+  }
   Ok(
-    serde_json::json!({"extensionRecentlyConnected":connected,"lastPollAt":last,"pollIntervalSeconds":30,"requestTtlSeconds":75,"requiresSameSavedToken":true,"autoSubmit":false}),
+    serde_json::json!({"extensionRecentlyConnected":any_connected,"browsers":browsers,"minimumExtensionVersion":MIN_EXTENSION_VERSION,"pollIntervalSeconds":30,"requestTtlSeconds":75,"requiresSameSavedToken":true,"autoSubmit":false}),
   )
 }
 
+/// The extension version this host's protocol needs (subscribe, versioned heartbeat).
+const MIN_EXTENSION_VERSION: &str = "0.2.5";
+/// A subscribed port is re-opened by the extension after this; keepalive frames detect a closed port.
+const SUBSCRIBE_SECONDS: u64 = 280;
+fn heartbeat_path(
+  server: &ResolvedServer,
+  browser: &str,
+) -> Result<PathBuf> {
+  Ok(queue_dir(server)?.join(format!(
+    "heartbeat-{}-{browser}.json",
+    credential_hash(&server.url)
+  )))
+}
+fn version_tuple(version: &str) -> Option<(u32, u32, u32)> {
+  let mut parts = version.split('.').map(|part| part.parse::<u32>().ok());
+  Some((
+    parts.next()??,
+    parts.next()??,
+    parts.next().unwrap_or(Some(0))?,
+  ))
+}
+fn extension_outdated(version: Option<&str>) -> bool {
+  version.and_then(version_tuple) < version_tuple(MIN_EXTENSION_VERSION)
+}
+fn read_heartbeat(
+  server: &ResolvedServer,
+  browser: &str,
+) -> Option<serde_json::Value> {
+  serde_json::from_slice(&fs::read(heartbeat_path(server, browser).ok()?).ok()?).ok()
+}
+/// Long-lived native port: push claimed requests as they arrive instead of waiting for the
+/// 30-second alarm. The open port also keeps the MV3 service worker alive.
+async fn subscribe(
+  server: &ResolvedServer,
+  browser: Option<&str>,
+  version: Option<&str>,
+  output: &mut impl Write,
+) -> Result<()> {
+  let started = std::time::Instant::now();
+  let mut last_frame: Option<std::time::Instant> = None;
+  while started.elapsed() < std::time::Duration::from_secs(SUBSCRIBE_SECONDS) {
+    let polled = poll(server, browser, version)?;
+    let has_requests = polled["requests"].as_array().is_some_and(|r| !r.is_empty());
+    if has_requests || last_frame.is_none_or(|at| at.elapsed().as_secs() >= 20) {
+      // A closed port fails this write and ends the subscription.
+      write_frame(output, &polled)?;
+      last_frame = Some(std::time::Instant::now());
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+  }
+  Ok(())
+}
 fn poll(
   server: &ResolvedServer,
   browser: Option<&str>,
+  version: Option<&str>,
 ) -> Result<serde_json::Value> {
   let _lock = settings_lock(server)?;
-  private_write(
-    &queue_dir(server)?.join(format!("heartbeat-{}.json", credential_hash(&server.url))),
-    &serde_json::to_vec(&serde_json::json!({"lastPollAt":chrono::Utc::now().timestamp()}))?,
-  )?;
+  let browser_name = match browser {
+    Some("edge") => "edge",
+    _ => "chrome",
+  };
+  // Only the version shape is stored; it is shown to MCP clients.
+  let version = version.filter(|v| v.len() <= 16 && version_tuple(v).is_some());
+  let now = chrono::Utc::now().timestamp();
+  // A subscribed port polls twice a second; refresh the heartbeat every few seconds only.
+  let fresh = read_heartbeat(server, browser_name).is_some_and(|beat| {
+    beat["version"].as_str() == version
+      && beat["lastPollAt"].as_i64().is_some_and(|at| now - at < 5)
+  });
+  if !fresh {
+    private_write(
+      &heartbeat_path(server, browser_name)?,
+      &serde_json::to_vec(&serde_json::json!({"lastPollAt":now,"version":version}))?,
+    )?;
+  }
   let mut requests = Vec::new();
   for entry in fs::read_dir(queue_dir(server)?)?.take(256) {
     let path = entry?.path();

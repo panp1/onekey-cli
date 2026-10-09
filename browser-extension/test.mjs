@@ -76,6 +76,7 @@ class Input {
     this.isConnected = true;
     this.disabled = false;
     this.readOnly = false;
+    this.autocomplete = "";
     this._value = "";
   }
   get value() {
@@ -697,4 +698,67 @@ test("UI errors are translated without exposing unknown native error bodies", as
   assert(page.status.textContent.includes("OneKey 拒绝"));
   showError(page.status, new Error("MUST_NOT_LEAK"));
   assert(!page.status.textContent.includes("MUST_NOT_LEAK"));
+});
+
+test("a subscribed native port pushes AI requests and reports the extension version", async () => {
+  const { subscribe } = await import("./worker.js");
+  const original = chrome.runtime.sendNativeMessage;
+  chrome.permissions = { contains: async () => true };
+  chrome.tabs.get = async () => ({
+    id: 7,
+    url: "https://accounts.example.com/login",
+  });
+  chrome.runtime.getManifest = () => ({ version: "9.9.9" });
+  chrome.runtime.sendNativeMessage = async (host, request) => {
+    if (request.action === "complete") {
+      sent.push(request);
+      return { ok: true };
+    }
+    const result = await original(host, request);
+    if (request.action === "list") result.bindings[0].allowAi = true;
+    return result;
+  };
+  const listed = await chrome.runtime.sendNativeMessage("com.onekey.browser", {
+    action: "list",
+  });
+  await chrome.storage.local.set({
+    [approvalKey("work")]: approvalOf(listed.bindings[0]),
+  });
+  let onMessage;
+  const posted = [];
+  chrome.runtime.connectNative = (host) => {
+    assert.equal(host, "com.onekey.browser");
+    return {
+      onMessage: { addListener: (fn) => (onMessage = fn) },
+      onDisconnect: { addListener: () => {} },
+      postMessage: (message) => posted.push(message),
+    };
+  };
+  subscribe();
+  assert.deepEqual(posted, [
+    { action: "subscribe", browser: "chrome", version: "9.9.9" },
+  ]);
+  sent.length = 0;
+  onMessage({ ok: true, requests: [{ id: "pushed", name: "work" }] });
+  for (let i = 0; i < 50 && !sent.some((r) => r.action === "complete"); i++)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(
+    sent.find((request) => request.action === "complete"),
+    { action: "complete", id: "pushed", outcome: "filled" },
+  );
+  delete chrome.runtime.connectNative;
+  delete chrome.runtime.getManifest;
+});
+test("a webauthn-marked identifier field is a username-only step", () => {
+  fields.password = [];
+  username.autocomplete = "email webauthn";
+  assert.deepEqual(fillLogin(window.location.origin, null, {}), {
+    ready: true,
+    fields: "username",
+  });
+  username.autocomplete = "email";
+  assert.throws(
+    () => fillLogin(window.location.origin, null, {}),
+    /No supported visible login fields/,
+  );
 });
