@@ -57,12 +57,42 @@ Changes apply at the next successful fetch; disconnected clients keep their
 previous deadline. Upgrade clients to enforce this policy. Legacy caches without
 a TTL are refused offline; older servers remain usable online.
 
-## For AI agents
+## Website login (browser extension)
 
-Website login: visually authorize existing username/password secrets and fill
-Chrome/Edge login forms through the OneKey extension. See
-[setup and current limitations](browser-extension/README.md). No server change
-is needed. Fill from the popup or an explicitly authorized MCP connection.
+The OneKey Login extension for Chrome and Edge fills a website's username and
+password from two OneKey secrets. Values go straight from your CLI to the page;
+the extension never clicks Next or Sign in.
+
+1. **Install.** Download `onekey-browser_<version>.zip` from
+   [Releases](https://github.com/panp1/onekey-cli/releases) and unzip it to a
+   folder you will keep, for example `~/.local/share/onekey/browser-extension`.
+   Open `chrome://extensions` (or `edge://extensions`), turn on Developer mode,
+   click **Load unpacked**, choose the `extension` folder and copy the extension ID.
+2. **Connect it to the CLI**, once per browser:
+   ```bash
+   onekey browser install --browser chrome --extension-id <ID>
+   onekey browser install --browser edge --extension-id <ID>
+   ```
+3. **Add a website.** Click the OneKey icon → **Manage websites and accounts**.
+   Pick the project and the existing username and password secrets, enter the
+   site origin (`https://login.example.com`, no path), name the connection and
+   save; the browser asks for permission to that site. Turn on **Allow JS login
+   pages** for sites without a `<form>` (most single-page apps).
+4. **Fill.**
+   - By hand: open the login page, click the OneKey icon, choose the account.
+   - From a terminal: `onekey browser fill <name> --browser edge` prints only the outcome.
+   - From an AI agent: enable **Allow AI** on the connection and save it once in
+     each browser the agent drives; the agent calls the MCP fill tools with
+     `name` and `browser` (see below). Fills arrive in about a second.
+
+Multi-step logins fill the current step: fill the username, continue, then fill
+the password. Upgrade by replacing the folder in place and clicking reload on the
+extensions page. More detail: [browser-extension/README.md](browser-extension/README.md).
+
+**Use AI filling only for test accounts.** Passwords never appear in MCP results
+or logs, but an agent that drives the browser can read a filled field.
+
+## For AI agents
 
 PATs default to a 15-minute offline cache TTL. Username/password sign-in and runner tokens each default to 1 hour. Configure each separately in server Settings → Security.
 
@@ -147,6 +177,26 @@ onekey status                                  # 检查连接和身份
 离线读取不会续期，过期后不会启动子进程。新设置在客户端下一次成功获取时生效，
 离线客户端仍按上次收到的期限执行。旧客户端需要升级；不含 TTL 的旧缓存拒绝离线使用，
 旧服务端仍可在线使用。
+
+### 网站登录（浏览器插件）
+
+OneKey Login 插件支持 Chrome 和 Edge，用两个 OneKey 密钥填网站的账号和密码。值由 CLI 直接交给页面，插件不会点「下一步」或「登录」。
+
+1. **安装**：从 [Releases](https://github.com/panp1/onekey-cli/releases) 下载 `onekey-browser_<版本>.zip`，解压到一个固定目录，例如 `~/.local/share/onekey/browser-extension`。打开 `chrome://extensions`（Edge 为 `edge://extensions`），开启开发者模式，点「加载已解压的扩展程序」，选择 `extension` 文件夹，复制插件 ID。
+2. **连接 CLI**，每个浏览器执行一次：
+   ```bash
+   onekey browser install --browser chrome --extension-id <ID>
+   onekey browser install --browser edge --extension-id <ID>
+   ```
+3. **添加网站**：点 OneKey 图标 →「管理网站与账号授权」，选择项目和已有的账号、密码密钥，填写网站来源（如 `https://login.example.com`，不带路径），起名保存，浏览器会请求该网站权限。没有 `<form>` 的页面（多数单页应用）要勾选「允许 JS 登录表单」。
+4. **填充**：
+   - 手动：打开登录页，点 OneKey 图标，选择账号。
+   - 命令行：`onekey browser fill <名称> --browser edge`，只输出结果。
+   - AI：在连接上勾选「允许 AI」，并在 AI 操作的每个浏览器里各保存一次；AI 通过 MCP 填充工具传入 `name` 和 `browser`（见下文），约 1 秒到达。
+
+分步登录每次填当前一步：先填账号，点继续，再填密码。升级时原地替换文件夹，在扩展页点刷新。详见 [browser-extension/README.md](browser-extension/README.md)。
+
+**AI 填充只用于测试账号。** 密码不会出现在 MCP 结果和日志里，但控制浏览器的 AI 能读到已填入的值。
 
 ### 给 AI 使用
 
