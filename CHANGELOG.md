@@ -2,17 +2,18 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
-## Unreleased
+## 0.7.5 - 2026-10-09
+
+Faster, easier browser login filling.
 
 - Browser extension 0.2.5: requests reach the extension within about a second over a long-lived native port (the 30-second alarm remains a fallback); status reports each browser's last contact and extension version, and requests for an outdated extension are refused with a clear message.
 - `onekey browser fill <name> --browser chrome|edge` requests a fill from a terminal and prints only the outcome.
 - Username-only steps also accept fields marked `autocomplete="webauthn"`; successful results no longer carry `reason: null`.
 - Browser extension 0.2.4 shares account configuration across Chrome and Edge and removes the browser selector. MCP fill tools require the user-selected `browser` (`chrome` or `edge`) per request; legacy account browser fields are ignored for routing. Each browser confirms its own AI filling approval without re-entering account configuration.
-
 - A refused AI fill now reports a fixed reason code (for example `noTab`, `multipleTabs`, `notApproved`, `noPermission`) through MCP; no page text or credentials.
 - Browser extension 0.2.2 adds an opt-in, revocable all-HTTPS site access switch in English and Chinese. Browser access remains separate from website/account and AI filling authorization.
-
 - Browser extension 0.2.1 supports English and Simplified Chinese, defaults to English, and saves the language selected in the popup or configuration page.
+- The README covers installing, configuring and using the browser extension.
 
 ## 0.7.4 - 2026-10-08
 
