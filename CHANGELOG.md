@@ -2,6 +2,13 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
+## 0.7.8 - 2026-10-09
+
+Fixes.
+
+- MCP: every tool returns a JSON object. Strict clients such as Claude Code rejected the whole tool list because the browser tools declared an untyped output schema.
+- `.env` import accepts an inline comment after a quoted value (`KEY="value" # note`); the CLI/server parser reported an unterminated quote and the console parser kept the quotes in the value. Text other than a comment after the closing quote is now reported.
+
 ## 0.7.7 - 2026-10-09
 
 Case-insensitive project and group names.
