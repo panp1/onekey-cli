@@ -98,6 +98,15 @@ struct BrowserRequestId {
   request_id: String,
 }
 
+/// MCP requires every structured result (and its outputSchema) to be a JSON object.
+type JsonObject = serde_json::Map<String, serde_json::Value>;
+fn object(value: serde_json::Value) -> Json<JsonObject> {
+  Json(match value {
+    serde_json::Value::Object(map) => map,
+    other => JsonObject::from_iter([("result".to_owned(), other)]),
+  })
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct BrowserFillRequest {
@@ -195,9 +204,9 @@ impl OneKeyMcp {
       idempotent_hint = true
     )
   )]
-  async fn browser_status(&self) -> Result<Json<serde_json::Value>, String> {
+  async fn browser_status(&self) -> Result<Json<JsonObject>, String> {
     super::browser::browser_status(&self.server)
-      .map(Json)
+      .map(object)
       .map_err(|_| "Could not inspect browser bridge".into())
   }
   #[tool(
@@ -212,8 +221,8 @@ impl OneKeyMcp {
   async fn request_browser_fill(
     &self,
     Parameters(request): Parameters<BrowserFillRequest>,
-  ) -> Result<Json<serde_json::Value>, String> {
-    super::browser::enqueue_fill(&self.server,&request.name,request.browser).map(Json).map_err(|error| format!("Request refused: {error}. Select chrome or edge, approve AI filling for this connection in that browser's extension and use the same saved PAT/runner token for MCP and native host."))
+  ) -> Result<Json<JsonObject>, String> {
+    super::browser::enqueue_fill(&self.server,&request.name,request.browser).map(object).map_err(|error| format!("Request refused: {error}. Select chrome or edge, approve AI filling for this connection in that browser's extension and use the same saved PAT/runner token for MCP and native host."))
   }
   #[tool(
     name = "onekey_get_browser_fill_result",
@@ -227,9 +236,9 @@ impl OneKeyMcp {
   async fn browser_fill_result(
     &self,
     Parameters(request): Parameters<BrowserRequestId>,
-  ) -> Result<Json<serde_json::Value>, String> {
+  ) -> Result<Json<JsonObject>, String> {
     super::browser::fill_result(&self.server, &request.request_id)
-      .map(Json)
+      .map(object)
       .map_err(|_| "Invalid request ID or identity".into())
   }
   #[tool(
@@ -244,9 +253,9 @@ impl OneKeyMcp {
   async fn cancel_browser_fill(
     &self,
     Parameters(request): Parameters<BrowserRequestId>,
-  ) -> Result<Json<serde_json::Value>, String> {
+  ) -> Result<Json<JsonObject>, String> {
     super::browser::cancel_fill(&self.server, &request.request_id)
-      .map(Json)
+      .map(object)
       .map_err(|_| "Invalid request ID or identity".into())
   }
   #[tool(
@@ -258,9 +267,9 @@ impl OneKeyMcp {
       idempotent_hint = true
     )
   )]
-  async fn list_browser_connections(&self) -> Result<Json<serde_json::Value>, String> {
+  async fn list_browser_connections(&self) -> Result<Json<JsonObject>, String> {
     super::browser::connections(&self.server)
-      .map(Json)
+      .map(object)
       .map_err(|_| "Could not read browser authorizations".into())
   }
   #[tool(
@@ -275,9 +284,9 @@ impl OneKeyMcp {
   async fn fill_browser_connection(
     &self,
     Parameters(request): Parameters<BrowserFillRequest>,
-  ) -> Result<Json<serde_json::Value>, String> {
+  ) -> Result<Json<JsonObject>, String> {
     let outcome = super::browser::request_fill(&self.server, &request.name, request.browser).await.map_err(|error| format!("Fill refused or timed out: {error}. Authorize the connection and AI filling in the selected browser's extension; keep one matching login tab open in that browser."))?;
-    Ok(Json(outcome))
+    Ok(object(outcome))
   }
   #[tool(
     name = "onekey_list_projects",

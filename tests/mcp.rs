@@ -98,6 +98,12 @@ async fn stdio_server_lists_only_scoped_metadata() {
   .await;
   let tools = listed["result"]["tools"].as_array().unwrap();
   assert_eq!(tools.len(), 9);
+  // MCP clients (e.g. Claude Code) reject tools whose outputSchema is not an object.
+  for tool in tools {
+    if let Some(schema) = tool.get("outputSchema") {
+      assert_eq!(schema["type"], "object", "{}", tool["name"]);
+    }
+  }
   for name in [
     "onekey_request_browser_fill",
     "onekey_fill_browser_connection",
