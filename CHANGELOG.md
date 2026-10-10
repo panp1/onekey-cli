@@ -2,6 +2,12 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- Browser extension 0.2.7: the expected disconnect when the native host ends a subscription no longer logs "Unchecked runtime.lastError: Native host has exited".
+
 ## 0.7.10 - 2026-10-10
 
 Version aligned with OneKey 0.7.10.

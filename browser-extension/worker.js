@@ -233,6 +233,9 @@ export function subscribe() {
     if (message?.requests?.length) handleRequests(message.requests);
   });
   port.onDisconnect.addListener(() => {
+    // The host ends every subscription after a few minutes; reading lastError
+    // keeps that expected disconnect out of the extension error log.
+    void chrome.runtime.lastError;
     port = null;
   });
   port.postMessage({
