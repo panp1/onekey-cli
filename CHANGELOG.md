@@ -2,7 +2,9 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
-## Unreleased
+## 0.7.11 - 2026-10-10
+
+Version aligned with OneKey 0.7.11.
 
 ### Fixed
 
