@@ -1,6 +1,6 @@
 [package]
 name = "onekey-cli"
-version = "0.7.8"
+version = "0.7.9"
 edition = "2024"
 license = "Apache-2.0"
 description = "Lightweight command-line client for a OneKey secrets server"

@@ -2,7 +2,9 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
-## Unreleased
+## 0.7.9 - 2026-10-10
+
+Hardening for `onekey curl`, YAML template typing, browser fill polling and offline name matching.
 
 ### Fixed
 
