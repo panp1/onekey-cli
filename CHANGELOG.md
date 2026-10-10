@@ -2,6 +2,14 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
+## 0.7.10 - 2026-10-10
+
+Version aligned with OneKey 0.7.10.
+
+### Improvement
+
+- Browser extension 0.2.6: icons use the OneKey burgundy ring-key logo. Replace the unpacked folder and refresh the extension to see them.
+
 ## 0.7.9 - 2026-10-10
 
 Hardening for `onekey curl`, YAML template typing, browser fill polling and offline name matching.
