@@ -23,7 +23,23 @@ fn curl_config_quotes_the_header_and_rejects_line_breaks() {
 #[test]
 fn curl_refuses_flags_that_would_print_the_authorization_header() {
   let args = |list: &[&str]| list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-  for flag in ["-v", "--verbose", "--trace", "--trace-ascii", "-sv", "-vL"] {
+  for flag in [
+    "-v",
+    "--verbose",
+    "--trace",
+    "--trace-ascii",
+    "-sv",
+    "-vL",
+    "--config",
+    "--config=debug.conf",
+    "-Kdebug.conf",
+    "-sKdebug.conf",
+    "--libcurl=generated.c",
+    "--verb",
+    "--trac",
+    "--conf",
+    "--libc",
+  ] {
     assert_eq!(
       verbose_flag(&args(&["https://x", flag, "-G"])),
       Some(flag),

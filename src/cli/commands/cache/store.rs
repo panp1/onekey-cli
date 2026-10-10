@@ -162,7 +162,9 @@ pub fn save(
   // (a renamed project whose old name was reused).
   for (id, cached) in &mut document.environments {
     if *id != runtime.environment_id {
-      cached.aliases.retain(|alias| !names.contains(alias));
+      cached
+        .aliases
+        .retain(|alias| !names.iter().any(|name| reference_matches(alias, name)));
     }
   }
   let mut aliases = vec![runtime.environment_id.clone()];
@@ -246,7 +248,12 @@ pub fn load(
   let cached = document
     .environments
     .into_values()
-    .filter(|cached| cached.aliases.iter().any(|alias| alias == reference))
+    .filter(|cached| {
+      cached
+        .aliases
+        .iter()
+        .any(|alias| reference_matches(alias, reference))
+    })
     .max_by_key(|cached| cached.fetched_at)
     .with_context(|| format!("encrypted run cache has no entry matching {reference}"))?;
   Ok(CachedRuntime {
@@ -258,6 +265,30 @@ pub fn load(
     cache_ttl_seconds: cached.cache_ttl_seconds,
     entries: cached.entries,
   })
+}
+
+/// Match the server's case-insensitive project/group names without folding IDs.
+fn reference_matches(
+  alias: &str,
+  reference: &str,
+) -> bool {
+  let (project, group) = alias
+    .split_once('/')
+    .map_or((alias, None), |(p, g)| (p, Some(g)));
+  let (wanted, wanted_group) = reference
+    .split_once('/')
+    .map_or((reference, None), |(p, g)| (p, Some(g)));
+  let project_matches = if project.starts_with("prj_") || project.starts_with("env_") {
+    project == wanted
+  } else {
+    project.eq_ignore_ascii_case(wanted)
+  };
+  project_matches
+    && match (group, wanted_group) {
+      (None, None) => true,
+      (Some(group), Some(wanted)) => group.eq_ignore_ascii_case(wanted),
+      _ => false,
+    }
 }
 
 pub fn inspect(

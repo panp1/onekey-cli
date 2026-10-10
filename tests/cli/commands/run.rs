@@ -137,6 +137,52 @@ async fn start_server() -> (Arc<AtomicU8>, String, tokio::task::JoinHandle<()>) 
   (mode, format!("http://{address}"), task)
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn curl_ignores_default_debug_config_and_does_not_inherit_login_token() {
+  use std::os::unix::fs::PermissionsExt;
+  let (_mode, url, task) = start_server().await;
+  let directory = TempDir::new().unwrap();
+  fs::write(directory.path().join(".curlrc"), "verbose\n").unwrap();
+  let command = || {
+    let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_onekey"));
+    command
+      .args([
+        "--data-dir",
+        directory.path().to_str().unwrap(),
+        "--server",
+        &url,
+        "curl",
+        "-p",
+        "payment-service",
+        "--bearer",
+        "API_TOKEN",
+        &url,
+      ])
+      .env("ONEKEY_TOKEN", TOKEN)
+      .env("CURL_HOME", directory.path());
+    command
+  };
+  let output = command().output().await.unwrap();
+  assert!(output.status.success(), "{output:?}");
+  let stderr = String::from_utf8_lossy(&output.stderr);
+  assert!(
+    !stderr.contains(SECRET),
+    "curlrc exposed the injected credential"
+  );
+  assert!(!stderr.contains("Authorization:"));
+
+  let bin = directory.path().join("bin");
+  fs::create_dir(&bin).unwrap();
+  let curl = bin.join("curl");
+  fs::write(&curl, "#!/bin/sh\nif [ -n \"${ONEKEY_TOKEN+x}\" ]; then echo inherited-token; fi\n/bin/cat >/dev/null\n").unwrap();
+  fs::set_permissions(&curl, fs::Permissions::from_mode(0o700)).unwrap();
+  let output = command().env("PATH", bin).output().await.unwrap();
+  assert!(output.status.success(), "{output:?}");
+  assert!(!String::from_utf8_lossy(&output.stdout).contains("inherited-token"));
+  task.abort();
+}
+
 #[tokio::test]
 async fn live_fetch_refreshes_encrypted_cache_and_falls_back_only_on_availability_errors() {
   let (mode, url, task) = start_server().await;

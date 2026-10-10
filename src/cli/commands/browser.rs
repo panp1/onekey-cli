@@ -1228,9 +1228,22 @@ fn poll(
       &serde_json::to_vec(&serde_json::json!({"lastPollAt":now,"version":version}))?,
     )?;
   }
+  let entries = fs::read_dir(queue_dir(server)?)?
+    .map(|entry| entry.map(|entry| entry.path()).map_err(Into::into));
+  let requests = claim_requests(server, browser, entries)?;
+  Ok(serde_json::json!({"ok":true,"requests":requests}))
+}
+
+fn claim_requests(
+  server: &ResolvedServer,
+  browser: Option<&str>,
+  entries: impl Iterator<Item = Result<PathBuf>>,
+) -> Result<Vec<serde_json::Value>> {
   let mut requests = Vec::new();
-  for entry in fs::read_dir(queue_dir(server)?)?.take(256) {
-    let path = entry?.path();
+  // Completed results share this directory. Bound claimed requests, not directory
+  // entries, so retained results cannot starve pending requests in any file order.
+  for path in entries {
+    let path = path?;
     let Some(id) = path.file_stem().and_then(|s| s.to_str()) else {
       continue;
     };
@@ -1265,7 +1278,7 @@ fn poll(
       break;
     }
   }
-  Ok(serde_json::json!({"ok":true,"requests":requests}))
+  Ok(requests)
 }
 fn complete(
   server: &ResolvedServer,
@@ -1298,6 +1311,36 @@ fn complete(
 #[cfg(test)]
 mod tests {
   use super::*;
+  #[test]
+  fn retained_results_cannot_starve_pending_requests() {
+    let state = tempfile::TempDir::new().unwrap();
+    let server =
+      crate::cli::local_config::resolve(Some("https://onekey.example.com"), Some(state.path()))
+        .unwrap();
+    let mut paths = Vec::new();
+    for _ in 0..300 {
+      let path = queue_path(&server, &ulid::Ulid::new().to_string(), "result").unwrap();
+      private_write(&path, b"{}").unwrap();
+      paths.push(Ok(path));
+    }
+    let id = ulid::Ulid::new().to_string();
+    let queued = Queued {
+      id: id.clone(),
+      name: "test".into(),
+      server_url: server.url.clone(),
+      fingerprint: "fixture".into(),
+      expires_at: chrono::Utc::now().timestamp() + 75,
+      credential_hash: "fixture".into(),
+      browser: Some("chrome".into()),
+    };
+    let path = queue_path(&server, &id, "pending").unwrap();
+    private_write(&path, &serde_json::to_vec(&queued).unwrap()).unwrap();
+    paths.push(Ok(path));
+    // Deliberately place the live request after every retained result.
+    let claimed = claim_requests(&server, Some("chrome"), paths.into_iter()).unwrap();
+    assert_eq!(claimed, vec![serde_json::json!({"id":id,"name":"test"})]);
+    assert!(queue_path(&server, &id, "claimed").unwrap().exists());
+  }
   #[test]
   fn origins_reject_paths_credentials_and_insecure_destinations() {
     assert_eq!(

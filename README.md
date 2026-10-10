@@ -57,6 +57,10 @@ Changes apply at the next successful fetch; disconnected clients keep their
 previous deadline. Upgrade clients to enforce this policy. Legacy caches without
 a TTL are refused offline; older servers remain usable online.
 
+`onekey curl` ignores default curl configuration and removes `ONEKEY_TOKEN` from
+the child environment. Debug output, extra config files (`-K` / `--config`) and
+`--libcurl` are refused because they can expose the injected Authorization header.
+
 ## Runtime YAML templates
 
 Use `--template` to replace only `#{{NAME}}#` in YAML string values with the
@@ -79,7 +83,8 @@ is written to disk. Names are case-sensitive; missing keys or invalid YAML stop
 the command. Values are inserted exactly once with YAML escaping. An unquoted
 placeholder that is the whole value becomes an integer or boolean when the secret
 is exactly a canonical one (`3`, `-1`, `true`, `false`), so `replicas: #{{REPLICAS}}#`
-works; quoted (`"#{{NAME}}#"`), block (`|`, `>`) and embedded placeholders, and
+works; explicitly tagged strings (`!!str #{{NAME}}#`), quoted (`"#{{NAME}}#"`),
+block (`|`, `>`) and embedded placeholders, and
 secrets such as `00123` or `1e3`, stay strings;
 `${NAME}`, `{{NAME}}` and tokens inside secret values are not expanded. Only
 OneKey secrets are resolved, without falling back to parent environment variables.
@@ -210,6 +215,8 @@ onekey status                                  # 检查连接和身份
 离线客户端仍按上次收到的期限执行。旧客户端需要升级；不含 TTL 的旧缓存拒绝离线使用，
 旧服务端仍可在线使用。
 
+`onekey curl` 不读取默认 curl 配置，并从子进程环境移除 `ONEKEY_TOKEN`。可能暴露认证头的调试输出、额外配置文件（`-K` / `--config`）和 `--libcurl` 会被拒绝。
+
 ### 运行时 YAML 模板
 
 `--template` 只替换 YAML 字符串值中的 `#{{密钥名}}#`，直接使用 OneKey 的密钥名称，**不加引号也能使用**：
@@ -227,7 +234,7 @@ onekey run myapp --template values.yaml -- helm upgrade --install myapp ./chart 
 
 完整渲染成功后才启动命令，通过子进程的标准输入传递结果，不修改原文件，也不生成含密钥的临时文件。
 名称区分大小写，缺失密钥或无效 YAML 会停止执行；不会回退读取本机或 CI 环境变量。
-替换值正确转义，只替换一次，`${NAME}`、`{{NAME}}` 和密钥值里的标记不会再次展开。占位符不加引号且独占整个值时，密钥若恰好是标准整数或布尔值（`3`、`-1`、`true`、`false`）就按该类型输出，所以 `replicas: #{{REPLICAS}}#` 可用；加引号（`"#{{NAME}}#"`）、写在 `|`/`>` 块中或与其他文字拼接的占位符，以及 `00123`、`1e3` 这类值，一律保持字符串。
+替换值正确转义，只替换一次，`${NAME}`、`{{NAME}}` 和密钥值里的标记不会再次展开。占位符不加引号且独占整个值时，密钥若恰好是标准整数或布尔值（`3`、`-1`、`true`、`false`）就按该类型输出，所以 `replicas: #{{REPLICAS}}#` 可用；显式标记为字符串（`!!str #{{NAME}}#`）、加引号（`"#{{NAME}}#"`）、写在 `|`/`>` 块中或与其他文字拼接的占位符，以及 `00123`、`1e3` 这类值，一律保持字符串。
 支持嵌套结构、列表和多个 YAML 文档；输出会重新生成格式，注释不保留。
 映射键中的占位符、重复键、合并键和不支持的 YAML 标签会报错。
 子进程仍获得原有的环境变量注入，退出码会传回。只运行不打印密钥的可信命令；部署工具可能将提交的值存储在集群中。

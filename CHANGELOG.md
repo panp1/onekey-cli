@@ -2,6 +2,15 @@
 
 All notable changes to the OneKey CLI are documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- `onekey curl` disables default curl configuration, refuses configuration/debug/source-generation options that can expose credentials, and removes `ONEKEY_TOKEN` from its child environment.
+- YAML templates preserve escaped marker literals and explicit string tags, and use parser scalar styles for type conversion.
+- Browser fill requests remain reachable when many completed results are retained.
+- Offline project/group name matching ignores case while IDs stay case-sensitive; reused names no longer retain stale aliases under another spelling.
+
 ## 0.7.8 - 2026-10-09
 
 Fixes.

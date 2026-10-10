@@ -307,7 +307,7 @@ fn save_merges_aliases_and_moves_a_reused_name_to_the_new_project() {
   let runtime = cached_runtime("dev", "env_a", now);
   // Cached by id first, then by name: both references keep resolving.
   store::save(&server, TOKEN, "env_a", &runtime).unwrap();
-  store::save(&server, TOKEN, "billing", &runtime).unwrap();
+  store::save(&server, TOKEN, "BILLING", &runtime).unwrap();
   let aliases = store::load(&server, TOKEN, "env_a").unwrap().aliases;
   for alias in ["env_a", "billing", "billing/dev", "alias-dev"] {
     assert!(aliases.contains(&alias.into()), "{aliases:?}");
@@ -321,7 +321,7 @@ fn save_merges_aliases_and_moves_a_reused_name_to_the_new_project() {
   other.aliases = Vec::new();
   store::save(&server, TOKEN, "billing", &other).unwrap();
   assert_eq!(
-    store::load(&server, TOKEN, "billing")
+    store::load(&server, TOKEN, "BILLING")
       .unwrap()
       .environment_id,
     "env_b",
@@ -339,4 +339,42 @@ fn save_merges_aliases_and_moves_a_reused_name_to_the_new_project() {
       .environment_id,
     "env_a"
   );
+}
+
+#[test]
+fn offline_names_ignore_case_but_project_and_environment_ids_do_not() {
+  let directory = TempDir::new().unwrap();
+  let server = server(&directory);
+  let mut runtime = cached_runtime("production", "env_ABC", Utc::now());
+  runtime
+    .aliases
+    .extend(["prj_ABC".into(), "prj_ABC/production".into()]);
+  store::save(&server, TOKEN, "billing", &runtime).unwrap();
+  for reference in [
+    "BILLING",
+    "Billing/PRODUCTION",
+    "prj_ABC",
+    "prj_ABC/PRODUCTION",
+    "env_ABC",
+  ] {
+    assert_eq!(
+      store::load(&server, TOKEN, reference)
+        .unwrap()
+        .environment_id,
+      "env_ABC",
+      "{reference}"
+    );
+  }
+  for reference in [
+    "env_abc",
+    "ENV_ABC",
+    "prj_abc",
+    "PRJ_ABC",
+    "prj_abc/production",
+  ] {
+    assert!(
+      store::load(&server, TOKEN, reference).is_err(),
+      "{reference}"
+    );
+  }
 }

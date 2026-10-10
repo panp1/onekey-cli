@@ -54,13 +54,17 @@ Examples:
   onekey curl -p payments --bearer api_key https://api.example.com/items -X POST -d '{}'
 
 Request bodies cannot be read from stdin (`-d @-`): curl's stdin carries the auth header.
-Verbose output (`-v`, `--verbose`, `--trace`, `--trace-ascii`) is refused: it would print the Authorization header.
+Curl's default config is disabled. Debug output, extra config files and generated libcurl source
+(`-v`, `--verbose`, `--trace`, `--trace-ascii`, `-K`, `--config`, `--libcurl`) are refused: they can expose the Authorization header.
 ";
 
 pub(super) async fn execute(
   server: &local_config::ResolvedServer,
   args: CurlArgs,
 ) -> Result<i32> {
+  if let Some(flag) = verbose_flag(&args.args) {
+    bail!("{flag} can expose the Authorization header; drop it");
+  }
   let loaded = run::load(server, args.environment, args.token).await?;
   let secret = |name: &str| {
     loaded
@@ -88,15 +92,9 @@ pub(super) async fn execute(
     (None, Some(name)) => format!("Bearer {}", secret(name)?),
     (None, None) => bail!("pass --basic USER:SECRET or --bearer SECRET"),
   };
-  if let Some(flag) = verbose_flag(&args.args) {
-    bail!("{flag} would print the Authorization header; drop it");
-  }
   let config = curl_config(&header)?;
 
-  let mut child = tokio::process::Command::new("curl")
-    .args(["-sS", "-K", "-"])
-    .args(&args.args)
-    .stdin(Stdio::piped())
+  let mut child = curl_command(&args.args)
     .spawn()
     .context("failed to start curl; is it installed?")?;
   let mut stdin = child.stdin.take().context("curl stdin unavailable")?;
@@ -111,15 +109,29 @@ pub(super) async fn execute(
   }
 }
 
-/// The first pass-through argument that would make curl print the request headers.
-/// Short-option clusters containing `v` (`-sv`) are refused too.
+fn curl_command(args: &[String]) -> tokio::process::Command {
+  let mut command = tokio::process::Command::new("curl");
+  command
+    // -q must be first: otherwise curl still reads its default config.
+    .args(["-q", "-sS", "-K", "-"])
+    .args(args)
+    .env_remove("ONEKEY_TOKEN")
+    .stdin(Stdio::piped());
+  command
+}
+
+/// Refuse output/configuration options that can disclose injected credentials.
+/// Include long-option abbreviations and short-option clusters/attached values.
 pub fn verbose_flag(args: &[String]) -> Option<&str> {
   args.iter().map(String::as_str).find(|arg| {
     if let Some(long) = arg.strip_prefix("--") {
       let name = long.split_once('=').map_or(long, |(name, _)| name);
-      return matches!(name, "verbose" | "trace" | "trace-ascii");
+      return !name.is_empty()
+        && ["verbose", "trace", "trace-ascii", "config", "libcurl"]
+          .iter()
+          .any(|blocked| blocked.starts_with(name));
     }
-    arg.len() > 1 && arg.starts_with('-') && arg.contains('v')
+    arg.len() > 1 && arg.starts_with('-') && arg.contains(['v', 'K'])
   })
 }
 
@@ -130,4 +142,21 @@ pub fn curl_config(header: &str) -> Result<String> {
   }
   let quoted = header.replace('\\', "\\\\").replace('"', "\\\"");
   Ok(format!("header = \"Authorization: {quoted}\"\n"))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn child_disables_default_config_and_removes_onekey_token() {
+    let command = curl_command(&["https://example.com".into()]);
+    let command = command.as_std();
+    assert_eq!(command.get_args().next().unwrap(), "-q");
+    assert!(
+      command
+        .get_envs()
+        .any(|(key, value)| key == "ONEKEY_TOKEN" && value.is_none())
+    );
+  }
 }

@@ -2,6 +2,7 @@ use crate::models::SecretInput;
 use anyhow::{Context, Result, bail};
 use regex::Regex;
 use serde_json::Value;
+use serde_saphyr::granit_parser::{Event, Parser, ScalarStyle};
 use std::{collections::HashMap, sync::OnceLock};
 
 /// Protect tokens before YAML parsing, so an unquoted leading `#` is data.
@@ -16,22 +17,7 @@ pub(super) fn render(
   text: &str,
   entries: &[SecretInput],
 ) -> Result<String> {
-  static TOKENS: OnceLock<Regex> = OnceLock::new();
-  let tokens = TOKENS.get_or_init(|| Regex::new(r"#\{\{([^{}\r\n]*)\}\}#").unwrap());
-  let mut prefix = "ONEKEYTEMPLATETOKEN".to_owned();
-  while text.contains(&prefix) {
-    prefix.push('X');
-  }
-  let mut names = Vec::new();
-  let protected = tokens.replace_all(text, |captures: &regex::Captures<'_>| {
-    let marker = format!("{prefix}{}END", names.len());
-    let start = captures.get(0).unwrap().start();
-    names.push(Token {
-      name: captures[1].to_owned(),
-      may_type: !quoted(text, start) && !in_block_scalar(text, start),
-    });
-    marker
-  });
+  let (protected, prefix, names) = protect(text)?;
   let options = serde_saphyr::options! {
     duplicate_keys: serde_saphyr::DuplicateKeyPolicy::Error,
     merge_keys: serde_saphyr::MergeKeyPolicy::Error,
@@ -71,36 +57,63 @@ pub(super) fn render(
 
 struct Token {
   name: String,
-  /// Unquoted and outside a `|`/`>` block, so the value may become a number or boolean.
+  /// A whole plain scalar without an explicit tag, as identified by the parser.
   may_type: bool,
 }
 
-fn quoted(
-  text: &str,
-  start: usize,
-) -> bool {
-  matches!(text[..start].chars().next_back(), Some('"' | '\''))
-}
-
-/// The token sits in a block scalar when the nearest less-indented line above it
-/// opens one (`key: |`, `- >-`, `key: |2+ # note`).
-fn in_block_scalar(
-  text: &str,
-  start: usize,
-) -> bool {
-  static HEADER: OnceLock<Regex> = OnceLock::new();
-  let header = HEADER.get_or_init(|| Regex::new(r"[|>][0-9+-]{0,2}\s*(#.*)?$").unwrap());
-  let line_start = text[..start].rfind('\n').map_or(0, |at| at + 1);
-  let line = &text[line_start..start];
-  if !line.trim().is_empty() {
-    return false;
+/// Validate markers against decoded scalars as well as source text. A YAML escape
+/// or folded line can otherwise turn an ordinary literal into an internal marker.
+fn protect(text: &str) -> Result<(String, String, Vec<Token>)> {
+  static TOKENS: OnceLock<Regex> = OnceLock::new();
+  let tokens = TOKENS.get_or_init(|| Regex::new(r"#\{\{([^{}\r\n]*)\}\}#").unwrap());
+  let mut prefix = "ONEKEYTEMPLATETOKEN".to_owned();
+  loop {
+    while text.contains(&prefix) {
+      prefix.push('X');
+    }
+    let mut names = Vec::new();
+    let protected = tokens
+      .replace_all(text, |captures: &regex::Captures<'_>| {
+        let marker = format!("{prefix}{}END", names.len());
+        names.push(Token {
+          name: captures[1].to_owned(),
+          may_type: false,
+        });
+        marker
+      })
+      .into_owned();
+    let mut collision = false;
+    for event in Parser::new_from_str(&protected) {
+      // Never include parser diagnostics: they can contain literal credentials.
+      let (event, span) = event.map_err(|_| anyhow::anyhow!("invalid YAML template"))?;
+      let Event::Scalar(value, style, _, tag) = event else {
+        continue;
+      };
+      let source = span
+        .slice(&protected)
+        .context("invalid YAML template scalar span")?;
+      // The prefix is absent from user source; every raw occurrence is one of
+      // our inserted tokens. More decoded occurrences means a literal collision.
+      if value.matches(&prefix).count() != source.matches(&prefix).count() {
+        collision = true;
+        break;
+      }
+      if style == ScalarStyle::Plain
+        && tag.is_none()
+        && let Some(index) = value
+          .strip_prefix(&prefix)
+          .and_then(|rest| rest.strip_suffix("END"))
+          .and_then(|index| index.parse::<usize>().ok())
+        && let Some(token) = names.get_mut(index)
+      {
+        token.may_type = true;
+      }
+    }
+    if !collision {
+      return Ok((protected, prefix, names));
+    }
+    prefix.push('X');
   }
-  let indent = line.len();
-  text[..line_start]
-    .lines()
-    .rev()
-    .find(|line| !line.trim().is_empty() && line.len() - line.trim_start().len() < indent)
-    .is_some_and(|line| header.is_match(line.trim_end()))
 }
 
 /// Canonical integers (fit in i64, no leading zeros or sign tricks) and booleans only.
@@ -316,6 +329,59 @@ nested:
     let doc: Value = serde_saphyr::from_str(&output).unwrap();
     assert_eq!(doc["literal"], "ONEKEYTEMPLATETOKEN0END");
     assert_eq!(doc["value"], "00123");
+  }
+
+  #[test]
+  fn escaped_marker_literals_and_keys_are_not_placeholders() {
+    let output = render(
+      r#"
+literal: "\u004fNEKEYTEMPLATETOKEN0END"
+"\u004fNEKEYTEMPLATETOKENX0END": unchanged
+mixed: "\u004fNEKEYTEMPLATETOKENXX0END #{{BUILD_NUMBER}}#"
+value: #{{BUILD_NUMBER}}#
+"#,
+      &entries(),
+    )
+    .unwrap();
+    let doc: Value = serde_saphyr::from_str(&output).unwrap();
+    assert_eq!(doc["literal"], "ONEKEYTEMPLATETOKEN0END");
+    assert_eq!(doc["ONEKEYTEMPLATETOKENX0END"], "unchanged");
+    assert_eq!(doc["mixed"], "ONEKEYTEMPLATETOKENXX0END 00123");
+    assert_eq!(doc["value"], "00123");
+  }
+
+  #[test]
+  fn explicit_string_tags_and_multiline_quotes_keep_string_types() {
+    let entries = [SecretInput {
+      key: "FLAG".into(),
+      value: "true".into(),
+    }];
+    let output = render(
+      r##"
+tagged: !!str #{{FLAG}}#
+verbatim: !<tag:yaml.org,2002:str> #{{FLAG}}#
+nonspecific: ! #{{FLAG}}#
+quoted: "\
+  #{{FLAG}}#"
+anchored: &flag !!str #{{FLAG}}#
+alias: *flag
+plain: #{{FLAG}}#
+"##,
+      &entries,
+    )
+    .unwrap();
+    let doc: Value = serde_saphyr::from_str(&output).unwrap();
+    for key in [
+      "tagged",
+      "verbatim",
+      "nonspecific",
+      "quoted",
+      "anchored",
+      "alias",
+    ] {
+      assert_eq!(doc[key], "true", "{key}");
+    }
+    assert_eq!(doc["plain"], true);
   }
 
   #[test]
